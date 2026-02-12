@@ -1,8 +1,14 @@
+from datetime import datetime
+
 from dotenv import load_dotenv
 
 from app.cli_ui import print_startup_ui
 from app.config import Settings
 from app.llm_service import LLMChatSession
+
+
+def _date_tag() -> str:
+    return datetime.now().strftime("[%Y-%m-%d]")
 
 
 def main():
@@ -21,7 +27,7 @@ def main():
 
     while True:
         try:
-            user_input = input("You> ").strip()
+            user_input = input(f"{_date_tag()}You> ").strip()
         except (EOFError, KeyboardInterrupt) as e:
             print(f"\n[Input Error] :{e}. Exiting.")
             return
@@ -38,7 +44,7 @@ def main():
             print(f"[ERROR] LLM call failed: {e}")
             continue
 
-        print(f"AI> {reply}\n")
+        print(f"{_date_tag()}AI> {reply}\n")
 
 
 if __name__ == "__main__":
