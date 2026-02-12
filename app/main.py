@@ -43,7 +43,12 @@ def main():
             return
 
         if intent_result.intent == IntentType.SQL:
-            print(f"{_date_tag()}AI> 已識別為 SQL 任務（Step A）。請補充資料表/欄位與查詢條件。\n")
+            features = session.extract_sql_features_with_llm(user_input)
+            print(
+                f"{_date_tag()}AI> 已識別為 SQL 任務（Step A）。\n"
+                f"Step B 特徵提取結果：{features}\n"
+                "請確認指標/維度/條件是否正確，再進入語意層檢索。\n"
+            )
             continue
 
         try:
