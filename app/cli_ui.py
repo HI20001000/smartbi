@@ -253,7 +253,6 @@ def print_startup_ui(
         mid,
         pad_line(f"{C('•', '1;37')} Type a message and press Enter"),
         pad_line(f"{C('•', '1;37')} Type {C('exit', '1;31')} or {C('quit', '1;31')} to stop"),
-        pad_line(C("• Tip: set NO_COLOR=1 to disable colors (or FORCE_COLOR=1 to force)", "2")),
         bot,
     ]
     print("\n".join(lines))
