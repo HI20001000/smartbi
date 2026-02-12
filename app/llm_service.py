@@ -1,3 +1,5 @@
+import json
+
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langchain_openai import ChatOpenAI
 
@@ -46,3 +48,43 @@ class LLMChatSession:
         resp = self.client.invoke(prompt)
         return getattr(resp, "content", str(resp)).strip()
 
+    def extract_sql_features_with_llm(self, user_input: str) -> dict:
+        prompt = [
+            SystemMessage(
+                content=(
+                    "你是 SQL 查詢特徵提取器。"
+                    "請從使用者自然語言提取 SQL 相關關鍵資訊，"
+                    "並且只能輸出 JSON。"
+                    "輸出格式固定為："
+                    '{"tokens":[],"metrics":[],"dimensions":[],"filters":[],"time_range":"","needs_clarification":false}'
+                    "說明："
+                    "tokens 放通用關鍵詞；metrics 放指標詞；dimensions 放維度詞；"
+                    "filters 放條件詞；time_range 放時間範圍（若無可留空字串）。"
+                    "不要輸出 JSON 以外文字。"
+                )
+            ),
+            HumanMessage(content=user_input),
+        ]
+
+        try:
+            resp = self.client.invoke(prompt)
+            raw = getattr(resp, "content", str(resp)).strip()
+            parsed = json.loads(raw)
+        except Exception:
+            return {
+                "tokens": [],
+                "metrics": [],
+                "dimensions": [],
+                "filters": [],
+                "time_range": "",
+                "needs_clarification": True,
+            }
+
+        return {
+            "tokens": parsed.get("tokens", []) or [],
+            "metrics": parsed.get("metrics", []) or [],
+            "dimensions": parsed.get("dimensions", []) or [],
+            "filters": parsed.get("filters", []) or [],
+            "time_range": str(parsed.get("time_range", "") or ""),
+            "needs_clarification": bool(parsed.get("needs_clarification", False)),
+        }
