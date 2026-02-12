@@ -8,7 +8,7 @@ from app.llm_service import LLMChatSession
 
 
 def _date_tag() -> str:
-    return datetime.now().strftime("[%Y-%m-%d]")
+    return datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
 
 
 def main():
