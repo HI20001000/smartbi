@@ -1,0 +1,4 @@
+PyYAML>=6.0
+langchain-core
+langchain-openai
+python-dotenv

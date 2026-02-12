@@ -6,6 +6,7 @@ from app.cli_ui import print_startup_ui
 from app.config import Settings
 from app.intent_router import IntentType, classify_intent
 from app.llm_service import LLMChatSession
+from app.token_matcher import SemanticTokenMatcher
 
 
 def _date_tag() -> str:
@@ -16,6 +17,7 @@ def main():
     load_dotenv()
     settings = Settings.load()
     session = LLMChatSession(settings)
+    matcher = SemanticTokenMatcher("app/semantics/smartbi_demo_macau_banking_semantic.yaml")
 
     print_startup_ui(
         model=settings.llm_model,
@@ -44,10 +46,12 @@ def main():
 
         if intent_result.intent == IntentType.SQL:
             features = session.extract_sql_features_with_llm(user_input)
+            token_hits = matcher.match(features)
             print(
                 f"{_date_tag()}AI> 已識別為 SQL 任務（Step A）。\n"
                 f"Step B 特徵提取結果：{features}\n"
-                "請確認指標/維度/條件是否正確，再進入語意層檢索。\n"
+                f"Step C Token 命中結果：{token_hits}\n"
+                "請確認命中的語意對象（指標/欄位/資料集）是否正確。\n"
             )
             continue
 
