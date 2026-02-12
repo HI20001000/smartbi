@@ -29,3 +29,20 @@ class LLMChatSession:
 
         self.history.append(AIMessage(content=reply))
         return reply
+
+    def classify_intent_with_llm(self, user_input: str) -> str:
+        prompt = [
+            SystemMessage(
+                content=(
+                    "你是意圖分類器。請判斷使用者輸入意圖並輸出 JSON。"
+                    "可用 intent 僅有 EXIT、SQL、CHAT。"
+                    "輸出格式固定為："
+                    '{"intent":"CHAT","confidence":0.0,"reason":"..."}'
+                    "不要輸出任何 JSON 以外文字。"
+                )
+            ),
+            HumanMessage(content=user_input),
+        ]
+        resp = self.client.invoke(prompt)
+        return getattr(resp, "content", str(resp)).strip()
+
