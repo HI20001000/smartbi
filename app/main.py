@@ -8,6 +8,7 @@ from app.intent_router import IntentType, classify_intent
 from app.llm_service import LLMChatSession
 from app.semantic_loader import load_semantic_layer, get_governance
 from app.semantic_validator import validate_semantic_plan
+from app.sql_compiler import compile_sql_from_semantic_plan
 from app.sql_planner import build_semantic_plan
 from app.token_matcher import SemanticTokenMatcher
 
@@ -64,12 +65,30 @@ def main():
                 semantic_layer=semantic_layer,
             )
 
+            generated_sql = ""
+            if validation.get("ok"):
+                try:
+                    generated_sql = session.generate_sql_from_json_plan_with_llm(
+                        user_input=user_input,
+                        json_plan=enhanced_plan,
+                        semantic_layer=semantic_layer,
+                    )
+                    if not generated_sql or "select *" in generated_sql.lower():
+                        raise ValueError("LLM SQL invalid")
+                except Exception:
+                    generated_sql = compile_sql_from_semantic_plan(
+                        enhanced_plan=enhanced_plan,
+                        semantic_layer=semantic_layer,
+                        limit=governance_limits.get("max_rows", 200),
+                    )
+
             print(
                 f"{_date_tag()}AI> 已識別為 SQL 任務（Step A）。\n"
                 f"Step B 特徵提取結果：{features}\n"
                 f"Step C Token 命中結果：{token_hits}\n"
                 f"Step D 規劃結果（Deterministic）：{enhanced_plan}\n"
                 f"Step E 規則校驗：{validation}\n"
+                f"Step F SQL 生成結果：\n{generated_sql if generated_sql else '[尚未生成，請先修正校驗錯誤]'}\n"
             )
             continue
 
