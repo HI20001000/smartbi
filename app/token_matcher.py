@@ -137,5 +137,5 @@ class SemanticTokenMatcher:
             "input_tokens": normalized_tokens,
             "matches": matches,
             "blocked_matches": blocked,
-            "need_clarification": len(matches) == 0,
+            "needs_clarification": len(matches) == 0,
         }
