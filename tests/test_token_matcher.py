@@ -18,14 +18,15 @@ def test_stepc_expanded_semantic_refs_and_time_passthrough():
 
     result = matcher.match(step_b)
 
-    assert "limit" not in result
-    assert "canonical_name" not in result["semantic_refs"]
+    assert set(result.keys()) == {"tokens", "time_start", "time_end", "semantic_refs"}
     assert result["tokens"] == step_b["tokens"]
     assert result["time_start"] == "2024-01-01"
     assert result["time_end"] == "2024-12-31"
 
+    assert set(result["semantic_refs"].keys()) == {"dataset", "time_field", "limit", "metrics", "dimensions", "filters"}
     assert result["semantic_refs"]["dataset"] == "transactions"
     assert result["semantic_refs"]["time_field"] == "tx.biz_date"
+    assert result["semantic_refs"]["limit"] is None
     assert result["semantic_refs"]["metrics"] == [
         {"name": "txn_count", "agg": "count", "expr": "tx.txn_id"}
     ]
@@ -50,8 +51,10 @@ def test_stepc_missing_mapping_returns_empty_arrays_without_crash():
 
     result = matcher.match(step_b)
 
+    assert set(result.keys()) == {"tokens", "time_start", "time_end", "semantic_refs"}
     assert result["semantic_refs"]["dataset"] == ""
     assert result["semantic_refs"]["time_field"] == ""
+    assert result["semantic_refs"]["limit"] is None
     assert result["semantic_refs"]["metrics"] == []
     assert result["semantic_refs"]["dimensions"] == []
     assert result["semantic_refs"]["filters"] == []

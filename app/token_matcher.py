@@ -161,16 +161,6 @@ class SemanticTokenMatcher:
     def _normalize(text: str) -> str:
         return text.strip().lower()
 
-    @staticmethod
-    def _unique_keep_order(values: list[str]) -> list[str]:
-        seen: set[str] = set()
-        out: list[str] = []
-        for value in values:
-            if value not in seen:
-                seen.add(value)
-                out.append(value)
-        return out
-
     def _collect_aliases(self, item: dict[str, Any]) -> list[str]:
         aliases = [item.get("name", "")]
         aliases.extend(item.get("synonyms", []) or [])
@@ -272,48 +262,17 @@ class SemanticTokenMatcher:
         return {
             "dataset": dataset,
             "time_field": time_field,
+            "limit": extracted_features.get("limit"),
             "metrics": metric_refs,
             "dimensions": dimension_refs,
             "filters": filter_refs,
         }
 
     def match(self, extracted_features: dict[str, Any]) -> dict[str, Any]:
-        raw_tokens: list[str] = []
-        for key in ("tokens", "metrics", "dimensions", "filters"):
-            values = extracted_features.get(key, []) or []
-            for v in values:
-                if isinstance(v, str) and v.strip():
-                    raw_tokens.append(v)
-
-        normalized_tokens = [self._normalize(t) for t in raw_tokens]
-
-        matches: list[dict[str, Any]] = []
-        for token in normalized_tokens:
-            for entry in self.entries:
-                if token in entry.aliases:
-                    matches.append(
-                        {
-                            "token": token,
-                            "object_type": entry.object_type,
-                            "canonical_name": entry.canonical_name,
-                            "dataset": entry.dataset,
-                            "entity": entry.entity,
-                            "table": entry.table,
-                            "allowed": entry.allowed,
-                        }
-                    )
-
-        blocked = [m for m in matches if m.get("allowed") is False]
         semantic_refs = self._build_semantic_refs(extracted_features)
-        extracted_features["semantic_refs"] = semantic_refs
-
         return {
             "tokens": extracted_features.get("tokens", []) or [],
             "time_start": extracted_features.get("time_start", ""),
             "time_end": extracted_features.get("time_end", ""),
-            "input_tokens": normalized_tokens,
-            "matches": matches,
-            "blocked_matches": blocked,
-            "needs_clarification": len(matches) == 0,
             "semantic_refs": semantic_refs,
         }
