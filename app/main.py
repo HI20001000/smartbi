@@ -57,7 +57,12 @@ def main():
                 token_hits=token_hits,
             )
 
-            validation = validate_semantic_plan(enhanced_plan, token_hits, governance_limits)
+            validation = validate_semantic_plan(
+                enhanced_plan,
+                token_hits,
+                governance_limits,
+                semantic_layer=semantic_layer,
+            )
 
             print(
                 f"{_date_tag()}AI> 已識別為 SQL 任務（Step A）。\n"
