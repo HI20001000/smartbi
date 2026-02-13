@@ -110,10 +110,6 @@ class SemanticTokenMatcher:
                 if isinstance(v, str) and v.strip():
                     raw_tokens.append(v)
 
-        time_range = extracted_features.get("time_range", "")
-        if isinstance(time_range, str) and time_range.strip():
-            raw_tokens.append(time_range)
-
         normalized_tokens = [self._normalize(t) for t in raw_tokens]
 
         matches: list[dict[str, Any]] = []
