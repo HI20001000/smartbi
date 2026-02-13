@@ -48,6 +48,36 @@ class LLMChatSession:
         resp = self.client.invoke(prompt)
         return getattr(resp, "content", str(resp)).strip()
 
+
+    def generate_sql_from_json_plan_with_llm(
+        self,
+        user_input: str,
+        json_plan: dict,
+        semantic_layer: dict,
+    ) -> str:
+        prompt = [
+            SystemMessage(
+                content=(
+                    "你是 SQL 生成器。根據提供的 JSON plan 與 semantic layer 產生 SQL。"
+                    "只輸出 SQL，不要任何解釋。"
+                    "規則："
+                    "1) 禁止使用未在 semantic layer 出現的資料表/欄位；"
+                    "2) 禁止 SELECT *；"
+                    "3) 優先使用 plan 中 selected_dataset_candidates[0]；"
+                    "4) 若 plan 不足以產生 SQL，輸出 SELECT 1 WHERE 1=0。"
+                )
+            ),
+            HumanMessage(
+                content=(
+                    f"user_input={user_input}\n"
+                    f"json_plan={json.dumps(json_plan, ensure_ascii=False)}\n"
+                    f"semantic_layer={json.dumps(semantic_layer, ensure_ascii=False)}"
+                )
+            ),
+        ]
+        resp = self.client.invoke(prompt)
+        return getattr(resp, "content", str(resp)).strip()
+
     def extract_sql_features_with_llm(self, user_input: str) -> dict:
         prompt = [
             SystemMessage(
