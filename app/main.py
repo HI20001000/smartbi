@@ -6,6 +6,9 @@ from app.cli_ui import print_startup_ui
 from app.config import Settings
 from app.intent_router import IntentType, classify_intent
 from app.llm_service import LLMChatSession
+from app.semantic_loader import load_semantic_layer, get_governance
+from app.semantic_validator import validate_semantic_plan
+from app.token_matcher import SemanticTokenMatcher
 
 
 def _date_tag() -> str:
@@ -16,6 +19,9 @@ def main():
     load_dotenv()
     settings = Settings.load()
     session = LLMChatSession(settings)
+    semantic_layer = load_semantic_layer()
+    governance_limits = get_governance(semantic_layer)
+    matcher = SemanticTokenMatcher("app/semantics/smartbi_demo_macau_banking_semantic.yaml")
 
     print_startup_ui(
         model=settings.llm_model,
@@ -43,7 +49,40 @@ def main():
             return
 
         if intent_result.intent == IntentType.SQL:
-            print(f"{_date_tag()}AI> 已識別為 SQL 任務（Step A）。請補充資料表/欄位與查詢條件。\n")
+            features = session.extract_sql_features_with_llm(user_input)
+            token_hits = matcher.match(features)
+            enhanced_plan = session.enhance_semantic_matches_with_llm(
+                user_input=user_input,
+                extracted_features=features,
+                token_hits=token_hits,
+                governance_limits=governance_limits,
+            )
+            time_axis = session.resolve_time_axis_with_llm(
+                user_input=user_input,
+                extracted_features=features,
+                selected_dataset_candidates=enhanced_plan.get("selected_dataset_candidates", []) or [],
+            )
+            if time_axis.get("has_time_filter") and not (enhanced_plan.get("selected_filters") or []):
+                enhanced_plan["selected_filters"] = [
+                    {
+                        "field": time_axis.get("time_dimension") or "calendar.biz_date",
+                        "op": "between",
+                        "value": [time_axis.get("start_date", ""), time_axis.get("end_date", "")],
+                        "source": "llm_time_axis",
+                    }
+                ]
+            enhanced_plan["time_axis"] = time_axis
+
+            validation = validate_semantic_plan(enhanced_plan, token_hits, governance_limits)
+
+            print(
+                f"{_date_tag()}AI> 已識別為 SQL 任務（Step A）。\n"
+                f"Step B 特徵提取結果：{features}\n"
+                f"Step C Token 命中結果：{token_hits}\n"
+                f"Step D LLM 輔助規劃：{enhanced_plan}\n"
+                f"Step D.5 時間軸解析：{time_axis}\n"
+                f"Step E 規則校驗：{validation}\n"
+            )
             continue
 
         try:
