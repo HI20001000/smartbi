@@ -62,6 +62,24 @@ def _build_time_filter(time_range: str) -> list[dict[str, Any]]:
     return []
 
 
+def _build_time_filter_from_bounds(time_start: str, time_end: str) -> list[dict[str, Any]]:
+    if not isinstance(time_start, str) or not isinstance(time_end, str):
+        return []
+    start = time_start.strip()
+    end = time_end.strip()
+    if not start or not end:
+        return []
+
+    return [
+        {
+            "field": "calendar.biz_date",
+            "op": "between",
+            "value": [start, end],
+            "source": "step_b_time_bounds",
+        }
+    ]
+
+
 def build_semantic_plan(
     extracted_features: dict[str, Any],
     token_hits: dict[str, Any],
@@ -84,7 +102,14 @@ def build_semantic_plan(
         if isinstance(f, str) and f.strip():
             selected_filters.append({"expr": f.strip(), "source": "step_b_filters"})
 
-    selected_filters.extend(_build_time_filter(str(extracted_features.get("time_range", "") or "")))
+    time_filters = _build_time_filter_from_bounds(
+        str(extracted_features.get("time_start", "") or ""),
+        str(extracted_features.get("time_end", "") or ""),
+    )
+    if time_filters:
+        selected_filters.extend(time_filters)
+    else:
+        selected_filters.extend(_build_time_filter(str(extracted_features.get("time_range", "") or "")))
 
     blocked = token_hits.get("blocked_matches", []) or []
     rejected_candidates = [
