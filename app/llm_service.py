@@ -82,17 +82,14 @@ class LLMChatSession:
             SystemMessage(
                 content=(
                     "你是 SQL 查詢特徵提取器。"
-                    "請從使用者自然語言提取 SQL 相關關鍵資訊，"
-                    "並且只能輸出 JSON。"
+                    "請根據使用者輸入提取欄位，並且只能輸出 JSON。"
                     "輸出格式固定為："
-                    '{"tokens":[],"metrics":[],"dimensions":[],"filters":[],"time_start":"","time_end":"","semantic_refs":{"dataset":"","metric_refs":[],"dimension_refs":[]}}'
-                    "說明："
-                    "tokens 放通用關鍵詞；metrics 放指標詞；dimensions 放維度詞；"
-                    "filters 放條件詞。"
-                    "semantic_refs 用於承接語意層參照，dataset 為候選資料集，"
-                    "metric_refs / dimension_refs 為 canonical ref（例如 dataset.metric_name）。"
-                    "time_start/time_end 為時間範圍起訖，格式 yyyy-mm-dd；若無法確定可留空。"
+                    '{"tokens":[],"metrics":[],"dimensions":[],"filters":[],"time_start":"","time_end":""}'
                     "不要輸出 JSON 以外文字。"
+                    "規則："
+                    "1) 只能輸出這 6 個欄位；"
+                    "2) tokens/metrics/dimensions/filters 必須是字串陣列；"
+                    "3) time_start/time_end 格式為 yyyy-mm-dd，若未知則為空字串。"
                 )
             ),
             HumanMessage(content=user_input),
@@ -103,41 +100,26 @@ class LLMChatSession:
             raw = getattr(resp, "content", str(resp)).strip()
             parsed = json.loads(raw)
         except Exception:
-            return {
-                "tokens": [],
-                "metrics": [],
-                "dimensions": [],
-                "filters": [],
-                "time_start": "",
-                "time_end": "",
-                "semantic_refs": {
-                    "dataset": "",
-                    "metric_refs": [],
-                    "dimension_refs": [],
-                },
-            }
+            parsed = {}
 
-        semantic_refs = parsed.get("semantic_refs", {}) or {}
-        dataset = semantic_refs.get("dataset", "")
-        metric_refs = semantic_refs.get("metric_refs", []) or []
-        dimension_refs = semantic_refs.get("dimension_refs", []) or []
+        def _string_list(value: object) -> list[str]:
+            if not isinstance(value, list):
+                return []
+            return [v.strip() for v in value if isinstance(v, str) and v.strip()]
 
-        if not isinstance(dataset, str):
-            dataset = ""
-
-        metric_refs = [m for m in metric_refs if isinstance(m, str) and m.strip()]
-        dimension_refs = [d for d in dimension_refs if isinstance(d, str) and d.strip()]
+        def _date_or_empty(value: object) -> str:
+            if not isinstance(value, str):
+                return ""
+            value = value.strip()
+            if len(value) == 10 and value[4] == "-" and value[7] == "-":
+                return value
+            return ""
 
         return {
-            "tokens": parsed.get("tokens", []) or [],
-            "metrics": parsed.get("metrics", []) or [],
-            "dimensions": parsed.get("dimensions", []) or [],
-            "filters": parsed.get("filters", []) or [],
-            "time_start": str(parsed.get("time_start", "") or ""),
-            "time_end": str(parsed.get("time_end", "") or ""),
-            "semantic_refs": {
-                "dataset": dataset.strip(),
-                "metric_refs": metric_refs,
-                "dimension_refs": dimension_refs,
-            },
+            "tokens": _string_list(parsed.get("tokens")),
+            "metrics": _string_list(parsed.get("metrics")),
+            "dimensions": _string_list(parsed.get("dimensions")),
+            "filters": _string_list(parsed.get("filters")),
+            "time_start": _date_or_empty(parsed.get("time_start")),
+            "time_end": _date_or_empty(parsed.get("time_end")),
         }
