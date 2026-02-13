@@ -1,12 +1,6 @@
 from __future__ import annotations
 
-import re
 from typing import Any
-
-
-_DATE_RANGE_PATTERN = re.compile(r"^\s*(\d{4}-\d{2}-\d{2})\s*(?:TO|to|~|-)\s*(\d{4}-\d{2}-\d{2})\s*$")
-_YEAR_PATTERN = re.compile(r"^\s*(\d{4})\s*$")
-_MONTH_TAG_PATTERN = re.compile(r"^\s*MONTH:(0?[1-9]|1[0-2])\s*$", re.IGNORECASE)
 
 
 def _unique_keep_order(values: list[str]) -> list[str]:
@@ -19,47 +13,22 @@ def _unique_keep_order(values: list[str]) -> list[str]:
     return out
 
 
-def _build_time_filter(time_range: str) -> list[dict[str, Any]]:
-    if not isinstance(time_range, str) or not time_range.strip():
+def _build_time_filter_from_bounds(time_start: str, time_end: str) -> list[dict[str, Any]]:
+    if not isinstance(time_start, str) or not isinstance(time_end, str):
+        return []
+    start = time_start.strip()
+    end = time_end.strip()
+    if not start or not end:
         return []
 
-    m = _DATE_RANGE_PATTERN.match(time_range)
-    if m:
-        start_date, end_date = m.group(1), m.group(2)
-        return [
-            {
-                "field": "calendar.biz_date",
-                "op": "between",
-                "value": [start_date, end_date],
-                "source": "step_b_time_range",
-            }
-        ]
-
-    year_match = _YEAR_PATTERN.match(time_range)
-    if year_match:
-        year = year_match.group(1)
-        return [
-            {
-                "field": "calendar.biz_date",
-                "op": "between",
-                "value": [f"{year}-01-01", f"{year}-12-31"],
-                "source": "step_b_time_range_year",
-            }
-        ]
-
-    month_match = _MONTH_TAG_PATTERN.match(time_range)
-    if month_match:
-        month = int(month_match.group(1))
-        return [
-            {
-                "field": "calendar.month",
-                "op": "=",
-                "value": f"{month:02d}",
-                "source": "step_b_time_range_month_tag",
-            }
-        ]
-
-    return []
+    return [
+        {
+            "field": "calendar.biz_date",
+            "op": "between",
+            "value": [start, end],
+            "source": "step_b_time_bounds",
+        }
+    ]
 
 
 def build_semantic_plan(
@@ -84,7 +53,12 @@ def build_semantic_plan(
         if isinstance(f, str) and f.strip():
             selected_filters.append({"expr": f.strip(), "source": "step_b_filters"})
 
-    selected_filters.extend(_build_time_filter(str(extracted_features.get("time_range", "") or "")))
+    selected_filters.extend(
+        _build_time_filter_from_bounds(
+            str(extracted_features.get("time_start", "") or ""),
+            str(extracted_features.get("time_end", "") or ""),
+        )
+    )
 
     blocked = token_hits.get("blocked_matches", []) or []
     rejected_candidates = [

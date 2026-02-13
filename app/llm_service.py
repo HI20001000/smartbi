@@ -86,15 +86,11 @@ class LLMChatSession:
                     "請從使用者自然語言提取 SQL 相關關鍵資訊，"
                     "並且只能輸出 JSON。"
                     "輸出格式固定為："
-                    '{"tokens":[],"metrics":[],"dimensions":[],"filters":[],"time_range":"","needs_clarification":false}'
+                    '{"tokens":[],"metrics":[],"dimensions":[],"filters":[],"time_start":"","time_end":""}'
                     "說明："
                     "tokens 放通用關鍵詞；metrics 放指標詞；dimensions 放維度詞；"
-                    "filters 放條件詞；time_range 放時間範圍（若無可留空字串）。"
-                    "time_range 一律規範成可機器解析格式："
-                    "1) 年份：例如『2024年』=> '2024-01-01 TO 2024-12-31'；"
-                    "2) 年月：例如『2024年12月』=> '2024-12-01 TO 2024-12-31'；"
-                    "3) 月份（無年份）：例如『12月各分行』=> 'MONTH:12'，表示12月內所有資料；"
-                    "4) 區間：例如『2024年6月到2025年尾』=> '2024-06-01 TO 2025-12-31'。"
+                    "filters 放條件詞。"
+                    "time_start/time_end 為時間範圍起訖，格式 yyyy-mm-dd；若無法確定可留空。"
                     "不要輸出 JSON 以外文字。"
                 )
             ),
@@ -111,8 +107,8 @@ class LLMChatSession:
                 "metrics": [],
                 "dimensions": [],
                 "filters": [],
-                "time_range": "",
-                "needs_clarification": True,
+                "time_start": "",
+                "time_end": "",
             }
 
         return {
@@ -120,6 +116,6 @@ class LLMChatSession:
             "metrics": parsed.get("metrics", []) or [],
             "dimensions": parsed.get("dimensions", []) or [],
             "filters": parsed.get("filters", []) or [],
-            "time_range": str(parsed.get("time_range", "") or ""),
-            "needs_clarification": bool(parsed.get("needs_clarification", False)),
+            "time_start": str(parsed.get("time_start", "") or ""),
+            "time_end": str(parsed.get("time_end", "") or ""),
         }
