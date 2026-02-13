@@ -66,6 +66,17 @@ class SemanticTokenMatcher:
 
         datasets = layer.get("datasets", {})
         for dataset_name, dataset in datasets.items():
+            for time_dimension in dataset.get("time_dimensions", []):
+                entries.append(
+                    SemanticEntry(
+                        object_type="time_dimension",
+                        canonical_name=f"{dataset_name}.{time_dimension.get('name')}",
+                        aliases=tuple(self._collect_aliases(time_dimension)),
+                        dataset=dataset_name,
+                        allowed=True,
+                    )
+                )
+
             for metric in dataset.get("metrics", []):
                 entries.append(
                     SemanticEntry(
@@ -94,6 +105,16 @@ class SemanticTokenMatcher:
     def _normalize(text: str) -> str:
         return text.strip().lower()
 
+    @staticmethod
+    def _unique_keep_order(values: list[str]) -> list[str]:
+        seen: set[str] = set()
+        out: list[str] = []
+        for value in values:
+            if value not in seen:
+                seen.add(value)
+                out.append(value)
+        return out
+
     def _collect_aliases(self, item: dict[str, Any]) -> list[str]:
         aliases = [item.get("name", "")]
         aliases.extend(item.get("synonyms", []) or [])
@@ -101,6 +122,81 @@ class SemanticTokenMatcher:
         if isinstance(expr, str) and expr:
             aliases.append(expr)
         return [self._normalize(a) for a in aliases if isinstance(a, str) and a.strip()]
+
+    def _build_semantic_refs(
+        self,
+        extracted_features: dict[str, Any],
+        matches: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        metric_refs = self._unique_keep_order(
+            [
+                m.get("canonical_name", "")
+                for m in matches
+                if m.get("object_type") == "metric" and m.get("allowed") is not False and m.get("canonical_name")
+            ]
+        )
+        dimension_refs = self._unique_keep_order(
+            [
+                m.get("canonical_name", "")
+                for m in matches
+                if m.get("object_type") == "dimension" and m.get("allowed") is not False and m.get("canonical_name")
+            ]
+        )
+        dataset_candidates = self._unique_keep_order(
+            [m.get("dataset", "") for m in matches if m.get("dataset")]
+        )
+
+        dataset = dataset_candidates[0] if dataset_candidates else ""
+        if not dataset and metric_refs:
+            dataset = metric_refs[0].split(".", 1)[0]
+        if not dataset and dimension_refs:
+            dataset = dimension_refs[0].split(".", 1)[0]
+
+        filter_refs: list[dict[str, Any]] = []
+        filters = extracted_features.get("filters", []) or []
+        if dimension_refs:
+            for filter_text in filters:
+                if isinstance(filter_text, str) and filter_text.strip():
+                    filter_refs.append(
+                        {
+                            "field": dimension_refs[0],
+                            "op": "=",
+                            "value": filter_text.strip(),
+                        }
+                    )
+
+        time_start = str(extracted_features.get("time_start", "") or "").strip()
+        time_end = str(extracted_features.get("time_end", "") or "").strip()
+        time_ref: dict[str, Any] = {}
+        time_field = ""
+        for match in matches:
+            if match.get("object_type") == "time_dimension" and match.get("allowed") is not False:
+                time_field = str(match.get("canonical_name", "") or "")
+                if time_field:
+                    break
+        if not time_field and dataset:
+            time_field = f"{dataset}.biz_date"
+        if time_field and time_start and time_end:
+            time_ref = {
+                "field": time_field,
+                "start": time_start,
+                "end": time_end,
+            }
+
+        signal_count = len(metric_refs) + len(dimension_refs)
+        if time_ref:
+            signal_count += 1
+        confidence = min(0.99, round(0.45 + signal_count * 0.13, 2)) if signal_count else 0.0
+
+        return {
+            "dataset": dataset,
+            "metric_refs": metric_refs,
+            "dimension_refs": dimension_refs,
+            "filter_refs": filter_refs,
+            "time_ref": time_ref,
+            "dataset_candidates": dataset_candidates,
+            "confidence": confidence,
+        }
 
     def match(self, extracted_features: dict[str, Any]) -> dict[str, Any]:
         raw_tokens: list[str] = []
@@ -129,9 +225,13 @@ class SemanticTokenMatcher:
                     )
 
         blocked = [m for m in matches if m.get("allowed") is False]
+        semantic_refs = self._build_semantic_refs(extracted_features, matches)
+        extracted_features["semantic_refs"] = semantic_refs
+
         return {
             "input_tokens": normalized_tokens,
             "matches": matches,
             "blocked_matches": blocked,
             "needs_clarification": len(matches) == 0,
+            "semantic_refs": semantic_refs,
         }
