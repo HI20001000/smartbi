@@ -24,6 +24,13 @@ class Settings:
     temperature: float = 0.2  # default
     max_tokens: int | None = None  # optional
 
+    db_host: str | None = None
+    db_port: int = 3306
+    db_user: str | None = None
+    db_password: str | None = None
+    db_name: str | None = None
+    chart_output_dir: str = "artifacts/charts"
+
     @staticmethod
     def load() -> "Settings":
         base_url = _get("LLM_BASE_URL")
@@ -49,4 +56,10 @@ class Settings:
             llm_api_key=api_key or "empty",
             temperature=temp,
             max_tokens=max_tokens,
+            db_host=_get("DB_HOST"),
+            db_port=int(_get("DB_PORT", "3306") or "3306"),
+            db_user=_get("DB_USER"),
+            db_password=_get("DB_PASSWORD"),
+            db_name=_get("DB_NAME"),
+            chart_output_dir=_get("CHART_OUTPUT_DIR", "artifacts/charts") or "artifacts/charts",
         )
