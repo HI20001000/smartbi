@@ -262,7 +262,6 @@ class SemanticTokenMatcher:
         return {
             "dataset": dataset,
             "time_field": time_field,
-            "limit": extracted_features.get("limit"),
             "metrics": metric_refs,
             "dimensions": dimension_refs,
             "filters": filter_refs,
