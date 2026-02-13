@@ -32,8 +32,33 @@ class SQLQueryExecutor:
         self.read_timeout = int(read_timeout)
 
     @staticmethod
+    def _unwrap_common_llm_wrappers(sql: str) -> str:
+        text = (sql or "").strip()
+        if not text:
+            return ""
+
+        # markdown code fences: ```sql ... ``` or ``` ... ```
+        if text.startswith("```") and text.endswith("```"):
+            lines = text.splitlines()
+            if len(lines) >= 2:
+                lines = lines[1:-1]
+                if lines and lines[0].strip().lower() == "sql":
+                    lines = lines[1:]
+                text = "\n".join(lines).strip()
+
+        # quoted string payload from upstream JSON / logging wrappers
+        if len(text) >= 2 and text[0] == text[-1] and text[0] in ("\"", "'"):
+            text = text[1:-1].strip()
+
+        # handle escaped newlines often produced by model/json formatting
+        if "\\n" in text:
+            text = text.replace("\\n", "\n")
+
+        return text
+
+    @staticmethod
     def _normalize_single_select_sql(sql: str) -> str | None:
-        normalized = (sql or "").strip()
+        normalized = SQLQueryExecutor._unwrap_common_llm_wrappers(sql)
         if not normalized:
             return None
 
