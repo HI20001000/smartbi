@@ -52,7 +52,6 @@ class LLMChatSession:
         self,
         user_input: str,
         token_hits: dict,
-        draft_plan: dict,
     ) -> dict:
         matches = token_hits.get("matches", []) or []
         candidate_metrics = [
@@ -82,7 +81,7 @@ class LLMChatSession:
                     "規則："
                     "1) selected_metrics / selected_dimensions 的值，必須來自候選清單；"
                     "2) selected_dataset_candidates 優先保留一個最適合資料集（可留空）；"
-                    "3) selected_filters 優先沿用 draft_plan.selected_filters，不要臆測新欄位；"
+                    "3) selected_filters 可留空；若提供，僅使用 field/op/value 或 expr 結構；"
                     "4) 若無法判斷，輸出空陣列；"
                     "5) 只能輸出 JSON，不得輸出任何說明文字。"
                 )
@@ -92,8 +91,7 @@ class LLMChatSession:
                     f"user_input={user_input}\n"
                     f"candidate_metrics={json.dumps(candidate_metrics, ensure_ascii=False)}\n"
                     f"candidate_dimensions={json.dumps(candidate_dimensions, ensure_ascii=False)}\n"
-                    f"candidate_datasets={json.dumps(candidate_datasets, ensure_ascii=False)}\n"
-                    f"draft_plan={json.dumps(draft_plan, ensure_ascii=False)}"
+                    f"candidate_datasets={json.dumps(candidate_datasets, ensure_ascii=False)}"
                 )
             ),
         ]

@@ -34,16 +34,6 @@ SEMANTIC_LAYER = {
 
 class SemanticPipelineTests(unittest.TestCase):
     def test_merge_llm_selection_keeps_only_candidates(self):
-        draft = {
-            "selected_metrics": ["sales.revenue"],
-            "selected_dimensions": ["sales.biz_date"],
-            "selected_filters": [{"field": "calendar.biz_date", "op": "between", "value": ["2024-01-01", "2024-01-31"]}],
-            "selected_dataset_candidates": ["sales"],
-            "rejected_candidates": [],
-            "needs_clarification": False,
-            "clarification_questions": [],
-            "confidence": 0.8,
-        }
         token_hits = {
             "matches": [
                 {"object_type": "metric", "canonical_name": "sales.revenue", "dataset": "sales", "allowed": True},
@@ -57,8 +47,31 @@ class SemanticPipelineTests(unittest.TestCase):
             "selected_filters": [],
             "confidence": 0.6,
         }
+        features = {"filters": [], "time_start": "", "time_end": ""}
 
-        merged = merge_llm_selection_into_plan(draft, llm_selection, token_hits)
+        merged = merge_llm_selection_into_plan(llm_selection, token_hits, features)
+
+        self.assertEqual(merged["selected_metrics"], ["sales.revenue"])
+        self.assertEqual(merged["selected_dimensions"], ["sales.biz_date"])
+        self.assertEqual(merged["selected_dataset_candidates"], ["sales"])
+
+
+    def test_merge_llm_selection_fallbacks_to_step_c_when_empty(self):
+        token_hits = {
+            "matches": [
+                {"object_type": "metric", "canonical_name": "sales.revenue", "dataset": "sales", "allowed": True},
+                {"object_type": "dimension", "canonical_name": "sales.biz_date", "dataset": "sales", "allowed": True},
+            ]
+        }
+        llm_selection = {
+            "selected_metrics": [],
+            "selected_dimensions": [],
+            "selected_dataset_candidates": [],
+            "selected_filters": [],
+        }
+        features = {"filters": [], "time_start": "", "time_end": ""}
+
+        merged = merge_llm_selection_into_plan(llm_selection, token_hits, features)
 
         self.assertEqual(merged["selected_metrics"], ["sales.revenue"])
         self.assertEqual(merged["selected_dimensions"], ["sales.biz_date"])

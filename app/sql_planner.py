@@ -115,10 +115,11 @@ def build_semantic_plan(
 
 
 def merge_llm_selection_into_plan(
-    draft_plan: dict[str, Any],
     llm_selection: dict[str, Any],
     token_hits: dict[str, Any],
+    extracted_features: dict[str, Any],
 ) -> dict[str, Any]:
+    """Deterministically assemble semantic plan from Step C candidates + LLM selection."""
     matches = token_hits.get("matches", []) or []
     metric_candidates = _canonical_candidates(matches, "metric")
     dimension_candidates = _canonical_candidates(matches, "dimension")
@@ -128,21 +129,41 @@ def merge_llm_selection_into_plan(
     selected_dimensions = _safe_selected_values(dimension_candidates, llm_selection.get("selected_dimensions", []) or [])
     selected_datasets = _safe_selected_values(dataset_candidates, llm_selection.get("selected_dataset_candidates", []) or [])
 
+    # fallback: if LLM did not select, use deterministic candidate order from Step C
     if not selected_metrics:
-        selected_metrics = list(draft_plan.get("selected_metrics", []) or [])
+        selected_metrics = metric_candidates
     if not selected_dimensions:
-        selected_dimensions = list(draft_plan.get("selected_dimensions", []) or [])
+        selected_dimensions = dimension_candidates
     if not selected_datasets:
-        selected_datasets = list(draft_plan.get("selected_dataset_candidates", []) or [])
+        selected_datasets = dataset_candidates
 
-    selected_filters = list(draft_plan.get("selected_filters", []) or [])
+    selected_filters: list[dict[str, Any]] = []
     llm_filters = llm_selection.get("selected_filters", []) or []
-    if isinstance(llm_filters, list) and llm_filters:
-        merged = [f for f in llm_filters if isinstance(f, dict)]
-        if merged:
-            selected_filters = merged
+    if isinstance(llm_filters, list):
+        selected_filters = [f for f in llm_filters if isinstance(f, dict)]
 
-    rejected_candidates = list(draft_plan.get("rejected_candidates", []) or [])
+    if not selected_filters:
+        for f in extracted_features.get("filters", []) or []:
+            if isinstance(f, str) and f.strip():
+                selected_filters.append({"expr": f.strip(), "source": "step_b_filters"})
+
+    selected_filters.extend(
+        _build_time_filter_from_bounds(
+            str(extracted_features.get("time_start", "") or ""),
+            str(extracted_features.get("time_end", "") or ""),
+        )
+    )
+
+    blocked = token_hits.get("blocked_matches", []) or []
+    rejected_candidates = [
+        {
+            "canonical_name": b.get("canonical_name", ""),
+            "reason": "sensitive_or_disallowed",
+        }
+        for b in blocked
+        if b.get("canonical_name")
+    ]
+
     needs_clarification = not selected_metrics and not selected_dimensions
     clarification_questions: list[str] = []
     if needs_clarification:
@@ -150,7 +171,12 @@ def merge_llm_selection_into_plan(
 
     confidence = llm_selection.get("confidence")
     if not isinstance(confidence, (int, float)):
-        confidence = draft_plan.get("confidence", 0.0)
+        if selected_metrics or selected_dimensions:
+            confidence = 0.8
+        elif matches:
+            confidence = 0.4
+        else:
+            confidence = 0.0
 
     return {
         "selected_metrics": selected_metrics,

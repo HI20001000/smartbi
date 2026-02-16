@@ -13,7 +13,7 @@ from app.query_executor import SQLQueryExecutor
 from app.semantic_loader import load_semantic_layer, get_governance
 from app.semantic_validator import validate_semantic_plan
 from app.sql_compiler import compile_sql_from_semantic_plan
-from app.sql_planner import build_semantic_plan, merge_llm_selection_into_plan
+from app.sql_planner import merge_llm_selection_into_plan
 from app.token_matcher import SemanticTokenMatcher
 
 
@@ -71,9 +71,14 @@ def main():
             
             token_hits = matcher.match(features)
             print(f"\n\nStep C Token 命中結果：{token_hits}\n\n")
-            draft_plan = build_semantic_plan(
-                extracted_features=features,
+            llm_selection = session.select_semantic_plan_with_llm(
+                user_input=user_input,
                 token_hits=token_hits,
+            )
+            enhanced_plan = merge_llm_selection_into_plan(
+                llm_selection=llm_selection,
+                token_hits=token_hits,
+                extracted_features=features,
             )
             llm_selection = session.select_semantic_plan_with_llm(
                 user_input=user_input,
@@ -153,9 +158,8 @@ def main():
 
             print(
                 f"Step C Token 命中結果：{token_hits}\n"
-                f"Step D 規劃結果（Draft）：{draft_plan}\n"
-                f"Step D2 LLM 選擇結果：{llm_selection}\n"
-                f"Step D3 合併後計畫（Deterministic）：{enhanced_plan}\n"
+                f"Step D LLM 選擇結果：{llm_selection}\n"
+                f"Step D2 合併後計畫（Deterministic）：{enhanced_plan}\n"
                 f"Step E 規則校驗：{validation}\n"
                 f"Step F SQL 生成結果：\n{generated_sql if generated_sql else '[尚未生成，請先修正校驗錯誤]'}\n"
                 f"Observability Metrics：{metrics_payload}\n"
