@@ -48,34 +48,103 @@ class LLMChatSession:
         resp = self.client.invoke(prompt)
         return getattr(resp, "content", str(resp)).strip()
 
-    def generate_sql_from_json_plan_with_llm(
+    def select_semantic_plan_with_llm(
         self,
         user_input: str,
-        json_plan: dict,
-        semantic_layer: dict,
-    ) -> str:
+        token_hits: dict,
+        draft_plan: dict,
+    ) -> dict:
+        matches = token_hits.get("matches", []) or []
+        candidate_metrics = [
+            m.get("canonical_name", "")
+            for m in matches
+            if m.get("object_type") == "metric" and m.get("allowed") is not False and m.get("canonical_name")
+        ]
+        candidate_dimensions = [
+            m.get("canonical_name", "")
+            for m in matches
+            if m.get("object_type") == "dimension" and m.get("allowed") is not False and m.get("canonical_name")
+        ]
+        candidate_datasets = [
+            m.get("dataset", "")
+            for m in matches
+            if isinstance(m.get("dataset"), str) and m.get("dataset")
+        ]
+
         prompt = [
             SystemMessage(
                 content=(
-                    "你是 SQL 生成器。根據提供的 JSON plan 與 semantic layer 產生 SQL。"
-                    "只輸出 SQL，不要任何解釋。"
+                    "你是 SmartBI 查詢規劃器。"
+                    "任務：根據使用者需求，從候選清單中挑選指標/維度/資料集。"
+                    "你不能輸出 SQL，只能輸出 JSON。"
+                    "輸出格式固定為："
+                    '{"selected_metrics":[],"selected_dimensions":[],"selected_filters":[],"selected_dataset_candidates":[],"confidence":0.0}'
                     "規則："
-                    "1) 禁止使用未在 semantic layer 出現的資料表/欄位；"
-                    "2) 禁止 SELECT *；"
-                    "3) 優先使用 plan 中 selected_dataset_candidates[0]；"
-                    "4) 若 plan 不足以產生 SQL，輸出 SELECT 1 WHERE 1=0。"
+                    "1) selected_metrics / selected_dimensions 的值，必須來自候選清單；"
+                    "2) selected_dataset_candidates 優先保留一個最適合資料集（可留空）；"
+                    "3) selected_filters 優先沿用 draft_plan.selected_filters，不要臆測新欄位；"
+                    "4) 若無法判斷，輸出空陣列；"
+                    "5) 只能輸出 JSON，不得輸出任何說明文字。"
                 )
             ),
             HumanMessage(
                 content=(
                     f"user_input={user_input}\n"
-                    f"json_plan={json.dumps(json_plan, ensure_ascii=False)}\n"
-                    f"semantic_layer={json.dumps(semantic_layer, ensure_ascii=False)}"
+                    f"candidate_metrics={json.dumps(candidate_metrics, ensure_ascii=False)}\n"
+                    f"candidate_dimensions={json.dumps(candidate_dimensions, ensure_ascii=False)}\n"
+                    f"candidate_datasets={json.dumps(candidate_datasets, ensure_ascii=False)}\n"
+                    f"draft_plan={json.dumps(draft_plan, ensure_ascii=False)}"
                 )
             ),
         ]
-        resp = self.client.invoke(prompt)
-        return getattr(resp, "content", str(resp)).strip()
+        try:
+            resp = self.client.invoke(prompt)
+            raw = getattr(resp, "content", str(resp)).strip()
+            parsed = json.loads(raw)
+        except Exception:
+            parsed = {}
+
+        def _string_list(value: object) -> list[str]:
+            if not isinstance(value, list):
+                return []
+            out: list[str] = []
+            seen: set[str] = set()
+            for v in value:
+                if not isinstance(v, str):
+                    continue
+                normalized = v.strip()
+                if not normalized or normalized in seen:
+                    continue
+                seen.add(normalized)
+                out.append(normalized)
+            return out
+
+        def _filter_list(value: object) -> list[dict]:
+            if not isinstance(value, list):
+                return []
+            out: list[dict] = []
+            for item in value:
+                if not isinstance(item, dict):
+                    continue
+                normalized: dict[str, object] = {}
+                for key in ("field", "op", "value", "expr", "source"):
+                    if key in item:
+                        normalized[key] = item.get(key)
+                if normalized:
+                    out.append(normalized)
+            return out
+
+        confidence = parsed.get("confidence", 0.0)
+        if not isinstance(confidence, (int, float)):
+            confidence = 0.0
+
+        return {
+            "selected_metrics": _string_list(parsed.get("selected_metrics")),
+            "selected_dimensions": _string_list(parsed.get("selected_dimensions")),
+            "selected_filters": _filter_list(parsed.get("selected_filters")),
+            "selected_dataset_candidates": _string_list(parsed.get("selected_dataset_candidates")),
+            "confidence": float(confidence),
+        }
 
     def extract_sql_features_with_llm(self, user_input: str) -> dict:
         prompt = [
