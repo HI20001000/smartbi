@@ -45,6 +45,7 @@ class Settings:
     reranker_url: str | None = None
     reranker_model: str | None = None
     reranker_api_key: str = "empty"
+    reranker_score_threshold: float = 0.0
 
     @staticmethod
     def load() -> "Settings":
@@ -83,4 +84,5 @@ class Settings:
             reranker_url=_get("RERANKER_URL"),
             reranker_model=_get("RERANKER_MODEL"),
             reranker_api_key=_get("RERANKER_API_KEY", "empty") or "empty",
+            reranker_score_threshold=float(_get("RERANKER_SCORE_THRESHOLD", "0") or "0"),
         )

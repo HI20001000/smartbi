@@ -40,6 +40,7 @@ class SemanticTokenMatcher:
         reranker_base_url: str | None = None,
         reranker_model: str | None = None,
         reranker_api_key: str = "empty",
+        reranker_score_threshold: float = 0.0,
     ):
         self.semantic_yaml_path = Path(semantic_yaml_path)
         self.embedding_base_url = (embedding_base_url or "").strip()
@@ -48,6 +49,7 @@ class SemanticTokenMatcher:
         self.reranker_base_url = (reranker_base_url or "").strip()
         self.reranker_model = (reranker_model or "").strip()
         self.reranker_api_key = (reranker_api_key or "empty").strip() or "empty"
+        self.reranker_score_threshold = float(reranker_score_threshold)
         self.embedding_client = self._build_embedding_client()
 
         (
@@ -336,6 +338,17 @@ class SemanticTokenMatcher:
         except Exception:
             return candidates[:top_k]
 
+
+    def _filter_by_rerank_threshold(self, candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if self.reranker_score_threshold <= 0:
+            return candidates
+        filtered: list[dict[str, Any]] = []
+        for item in candidates:
+            score = item.get("score")
+            if isinstance(score, (int, float)) and float(score) >= self.reranker_score_threshold:
+                filtered.append(item)
+        return filtered
+
     def _build_semantic_refs(
         self,
         extracted_features: dict[str, Any],
@@ -456,6 +469,7 @@ class SemanticTokenMatcher:
 
         embedding_hits = self._semantic_retrieve(semantic_query, top_k=8)
         reranked_hits = self._rerank(semantic_query, embedding_hits, top_k=8)
+        reranked_hits = self._filter_by_rerank_threshold(reranked_hits)
 
         retrieved_allowed = [item for item in reranked_hits if item.get("allowed") is not False]
         retrieved_blocked = [item for item in reranked_hits if item.get("allowed") is False]

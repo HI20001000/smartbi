@@ -34,6 +34,7 @@ def main():
         reranker_base_url=settings.reranker_url,
         reranker_model=settings.reranker_model,
         reranker_api_key=settings.reranker_api_key,
+        reranker_score_threshold=settings.reranker_score_threshold,
     )
 
     print_startup_ui(
