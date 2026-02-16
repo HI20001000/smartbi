@@ -186,6 +186,9 @@ def validate_semantic_plan(
             elif op in {"=", "!=", ">", ">=", "<", "<="}:
                 if value is None:
                     _add_error("INVALID_FILTER_VALUE", f"第 {idx+1} 個過濾條件缺少 value。")
+            elif op == "in":
+                if not isinstance(value, list) or not value:
+                    _add_error("INVALID_FILTER_VALUE", f"第 {idx+1} 個 in 條件需提供至少一個值。")
             elif not has_expr:
                 _add_error("INVALID_FILTER_SHAPE", f"第 {idx+1} 個過濾條件缺少可用欄位（field/op/value 或 expr）。")
 

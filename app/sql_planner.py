@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import re
 from typing import Any
+
+
+_NUMERIC_PATTERN = re.compile(r"^-?\d+(?:\.\d+)?$")
 
 
 def _unique_keep_order(values: list[str]) -> list[str]:
@@ -11,6 +15,71 @@ def _unique_keep_order(values: list[str]) -> list[str]:
             seen.add(v)
             out.append(v)
     return out
+
+
+def _parse_scalar_filter_value(raw_value: str) -> Any:
+    value = raw_value.strip()
+    if len(value) >= 2 and ((value[0] == value[-1] == "'") or (value[0] == value[-1] == '"')):
+        return value[1:-1]
+    if _NUMERIC_PATTERN.match(value):
+        return float(value) if "." in value else int(value)
+    return value
+
+
+def _parse_filter_expr(filter_text: str) -> dict[str, Any]:
+    text = filter_text.strip()
+    source = "step_b_filters"
+    if not text:
+        return {"expr": text, "source": source}
+
+    between_match = re.match(r"^(?P<field>.+?)\s+[bB][eE][tT][wW][eE][eE][nN]\s+(?P<start>.+?)\s+[aA][nN][dD]\s+(?P<end>.+)$", text)
+    if between_match:
+        return {
+            "field": between_match.group("field").strip(),
+            "op": "between",
+            "value": [
+                _parse_scalar_filter_value(between_match.group("start")),
+                _parse_scalar_filter_value(between_match.group("end")),
+            ],
+            "source": source,
+        }
+
+    in_match = re.match(r"^(?P<field>.+?)\s+[iI][nN]\s*\((?P<values>.+)\)$", text)
+    if in_match:
+        raw_values = [v.strip() for v in in_match.group("values").split(",")]
+        values = [_parse_scalar_filter_value(v) for v in raw_values if v]
+        return {
+            "field": in_match.group("field").strip(),
+            "op": "in",
+            "value": values,
+            "source": source,
+        }
+
+    normalized_text = text.replace("＝", "=")
+    for op in ("!=", ">=", "<=", "=", ">", "<"):
+        if op not in normalized_text:
+            continue
+        lhs, rhs = normalized_text.split(op, 1)
+        field = lhs.strip()
+        value_text = rhs.strip()
+        if field and value_text:
+            return {
+                "field": field,
+                "op": op,
+                "value": _parse_scalar_filter_value(value_text),
+                "source": source,
+            }
+        break
+
+    return {"expr": text, "source": source}
+
+
+def _build_step_b_filters(extracted_features: dict[str, Any]) -> list[dict[str, Any]]:
+    selected_filters: list[dict[str, Any]] = []
+    for f in extracted_features.get("filters", []) or []:
+        if isinstance(f, str) and f.strip():
+            selected_filters.append(_parse_filter_expr(f))
+    return selected_filters
 
 
 def _build_time_filter_from_bounds(time_start: str, time_end: str) -> list[dict[str, Any]]:
@@ -69,11 +138,7 @@ def build_semantic_plan(
     selected_dimensions = _canonical_candidates(matches, "dimension")
     dataset_candidates = _dataset_candidates(matches)
 
-    selected_filters: list[dict[str, Any]] = []
-    for f in extracted_features.get("filters", []) or []:
-        if isinstance(f, str) and f.strip():
-            selected_filters.append({"expr": f.strip(), "source": "step_b_filters"})
-
+    selected_filters = _build_step_b_filters(extracted_features)
     selected_filters.extend(
         _build_time_filter_from_bounds(
             str(extracted_features.get("time_start", "") or ""),
@@ -136,9 +201,7 @@ def merge_llm_selection_into_plan(
         selected_filters = [f for f in llm_filters if isinstance(f, dict)]
 
     if not selected_filters:
-        for f in extracted_features.get("filters", []) or []:
-            if isinstance(f, str) and f.strip():
-                selected_filters.append({"expr": f.strip(), "source": "step_b_filters"})
+        selected_filters = _build_step_b_filters(extracted_features)
 
     selected_filters.extend(
         _build_time_filter_from_bounds(
