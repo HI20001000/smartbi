@@ -77,7 +77,7 @@ class LLMChatSession:
                     "任務：根據使用者需求，從候選清單中挑選指標/維度/資料集。"
                     "你不能輸出 SQL，只能輸出 JSON。"
                     "輸出格式固定為："
-                    '{"selected_metrics":[],"selected_dimensions":[],"selected_filters":[],"selected_dataset_candidates":[],"confidence":0.0}'
+                    '{"selected_metrics":[],"selected_dimensions":[],"selected_filters":[],"selected_dataset_candidates":[]}'
                     "規則："
                     "1) selected_metrics / selected_dimensions 的值，必須來自候選清單；"
                     "2) selected_dataset_candidates 優先保留一個最適合資料集（可留空）；"
@@ -132,16 +132,11 @@ class LLMChatSession:
                     out.append(normalized)
             return out
 
-        confidence = parsed.get("confidence", 0.0)
-        if not isinstance(confidence, (int, float)):
-            confidence = 0.0
-
         return {
             "selected_metrics": _string_list(parsed.get("selected_metrics")),
             "selected_dimensions": _string_list(parsed.get("selected_dimensions")),
             "selected_filters": _filter_list(parsed.get("selected_filters")),
             "selected_dataset_candidates": _string_list(parsed.get("selected_dataset_candidates")),
-            "confidence": float(confidence),
         }
 
     def extract_sql_features_with_llm(self, user_input: str) -> dict:

@@ -96,12 +96,6 @@ def build_semantic_plan(
     if needs_clarification:
         clarification_questions.append("請補充要查詢的指標或維度名稱。")
 
-    confidence = 0.0
-    if selected_metrics or selected_dimensions:
-        confidence = 0.8
-    elif matches:
-        confidence = 0.4
-
     return {
         "selected_metrics": selected_metrics,
         "selected_dimensions": selected_dimensions,
@@ -110,7 +104,6 @@ def build_semantic_plan(
         "rejected_candidates": rejected_candidates,
         "needs_clarification": needs_clarification,
         "clarification_questions": clarification_questions,
-        "confidence": confidence,
     }
 
 
@@ -169,15 +162,6 @@ def merge_llm_selection_into_plan(
     if needs_clarification:
         clarification_questions.append("請補充要查詢的指標或維度名稱。")
 
-    confidence = llm_selection.get("confidence")
-    if not isinstance(confidence, (int, float)):
-        if selected_metrics or selected_dimensions:
-            confidence = 0.8
-        elif matches:
-            confidence = 0.4
-        else:
-            confidence = 0.0
-
     return {
         "selected_metrics": selected_metrics,
         "selected_dimensions": selected_dimensions,
@@ -186,5 +170,4 @@ def merge_llm_selection_into_plan(
         "rejected_candidates": rejected_candidates,
         "needs_clarification": needs_clarification,
         "clarification_questions": clarification_questions,
-        "confidence": float(confidence),
     }
