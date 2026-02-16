@@ -79,6 +79,7 @@ def main():
                 llm_selection=llm_selection,
                 token_hits=token_hits,
                 extracted_features=features,
+                semantic_layer=semantic_layer,
             )
 
             validation = validate_semantic_plan(

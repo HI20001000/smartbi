@@ -17,6 +17,38 @@ def _unique_keep_order(values: list[str]) -> list[str]:
     return out
 
 
+def _normalize_key(value: str) -> str:
+    return str(value or "").strip().lower()
+
+
+def _canonical_candidates(matches: list[dict[str, Any]], object_type: str) -> list[str]:
+    return _unique_keep_order(
+        [
+            m.get("canonical_name", "")
+            for m in matches
+            if m.get("object_type") == object_type and m.get("allowed") is not False and m.get("canonical_name")
+        ]
+    )
+
+
+def _dataset_candidates(matches: list[dict[str, Any]]) -> list[str]:
+    return _unique_keep_order([m.get("dataset", "") for m in matches if m.get("dataset")])
+
+
+def _safe_selected_values(candidates: list[str], values: list[Any]) -> list[str]:
+    candidate_set = set(candidates)
+    out: list[str] = []
+    for value in values:
+        if not isinstance(value, str):
+            continue
+        normalized = value.strip()
+        if not normalized or normalized not in candidate_set:
+            continue
+        if normalized not in out:
+            out.append(normalized)
+    return out
+
+
 def _parse_scalar_filter_value(raw_value: str) -> Any:
     value = raw_value.strip()
     if len(value) >= 2 and ((value[0] == value[-1] == "'") or (value[0] == value[-1] == '"')):
@@ -74,15 +106,116 @@ def _parse_filter_expr(filter_text: str) -> dict[str, Any]:
     return {"expr": text, "source": source}
 
 
-def _build_step_b_filters(extracted_features: dict[str, Any]) -> list[dict[str, Any]]:
+def _add_alias(alias_lookup: dict[str, str], alias: str, canonical: str) -> None:
+    key = _normalize_key(alias)
+    if key and key not in alias_lookup:
+        alias_lookup[key] = canonical
+
+
+def _build_field_alias_lookup(semantic_layer: dict[str, Any] | None, dataset_name: str) -> dict[str, str]:
+    if semantic_layer is None:
+        return {}
+
+    alias_lookup: dict[str, str] = {}
+    datasets = semantic_layer.get("datasets", {}) or {}
+    entities = semantic_layer.get("entities", {}) or {}
+    dataset = datasets.get(dataset_name, {}) or {}
+
+    for dimension in dataset.get("dimensions", []) or []:
+        name = str(dimension.get("name", "") or "").strip()
+        if not name:
+            continue
+        canonical = f"{dataset_name}.{name}"
+        _add_alias(alias_lookup, canonical, canonical)
+        _add_alias(alias_lookup, name, canonical)
+        for synonym in dimension.get("synonyms", []) or []:
+            _add_alias(alias_lookup, str(synonym), canonical)
+
+    for time_dimension in dataset.get("time_dimensions", []) or []:
+        name = str(time_dimension.get("name", "") or "").strip()
+        if not name:
+            continue
+        canonical = f"{dataset_name}.{name}"
+        _add_alias(alias_lookup, canonical, canonical)
+        _add_alias(alias_lookup, name, canonical)
+        for synonym in time_dimension.get("synonyms", []) or []:
+            _add_alias(alias_lookup, str(synonym), canonical)
+
+    join_entities = [
+        str(j.get("entity", "") or "").strip()
+        for j in dataset.get("joins", []) or []
+        if isinstance(j, dict) and str(j.get("entity", "") or "").strip()
+    ]
+    for entity_name in join_entities:
+        entity = entities.get(entity_name, {}) or {}
+        for field in entity.get("fields", []) or []:
+            name = str(field.get("name", "") or "").strip()
+            if not name:
+                continue
+            canonical = f"{entity_name}.{name}"
+            _add_alias(alias_lookup, canonical, canonical)
+            _add_alias(alias_lookup, name, canonical)
+            for synonym in field.get("synonyms", []) or []:
+                _add_alias(alias_lookup, str(synonym), canonical)
+
+    return alias_lookup
+
+
+def _normalize_filter_field(parsed_filter: dict[str, Any], alias_lookup: dict[str, str], raw_filter_text: str) -> dict[str, Any]:
+    field = parsed_filter.get("field")
+    if not isinstance(field, str) or not field.strip():
+        return parsed_filter
+
+    normalized_key = _normalize_key(field)
+    canonical = alias_lookup.get(normalized_key)
+    if canonical:
+        out = dict(parsed_filter)
+        out["field"] = canonical
+        return out
+
+    # keep canonical-like field names (e.g. branch.region) as-is
+    if "." in field.strip():
+        return parsed_filter
+
+    return {
+        "expr": raw_filter_text.strip(),
+        "source": parsed_filter.get("source", "step_b_filters"),
+    }
+
+
+def _build_step_b_filters(
+    extracted_features: dict[str, Any],
+    semantic_layer: dict[str, Any] | None,
+    selected_dataset: str,
+) -> list[dict[str, Any]]:
+    alias_lookup = _build_field_alias_lookup(semantic_layer, selected_dataset)
     selected_filters: list[dict[str, Any]] = []
     for f in extracted_features.get("filters", []) or []:
-        if isinstance(f, str) and f.strip():
-            selected_filters.append(_parse_filter_expr(f))
+        if not isinstance(f, str) or not f.strip():
+            continue
+        parsed = _parse_filter_expr(f)
+        normalized = _normalize_filter_field(parsed, alias_lookup, f)
+        selected_filters.append(normalized)
     return selected_filters
 
 
-def _build_time_filter_from_bounds(time_start: str, time_end: str) -> list[dict[str, Any]]:
+def _resolve_time_filter_field(selected_dataset: str, semantic_layer: dict[str, Any] | None) -> str:
+    if not selected_dataset or semantic_layer is None:
+        return "calendar.biz_date"
+    dataset = (semantic_layer.get("datasets", {}) or {}).get(selected_dataset, {}) or {}
+    for time_dimension in dataset.get("time_dimensions", []) or []:
+        name = str(time_dimension.get("name", "") or "").strip()
+        if name:
+            return f"{selected_dataset}.{name}"
+    return "calendar.biz_date"
+
+
+def _build_time_filter_from_bounds(
+    time_start: str,
+    time_end: str,
+    selected_dataset: str,
+    semantic_layer: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
     if not isinstance(time_start, str) or not isinstance(time_end, str):
         return []
     start = time_start.strip()
@@ -92,7 +225,7 @@ def _build_time_filter_from_bounds(time_start: str, time_end: str) -> list[dict[
 
     return [
         {
-            "field": "calendar.biz_date",
+            "field": _resolve_time_filter_field(selected_dataset, semantic_layer),
             "op": "between",
             "value": [start, end],
             "source": "step_b_time_bounds",
@@ -100,49 +233,25 @@ def _build_time_filter_from_bounds(time_start: str, time_end: str) -> list[dict[
     ]
 
 
-def _canonical_candidates(matches: list[dict[str, Any]], object_type: str) -> list[str]:
-    return _unique_keep_order(
-        [
-            m.get("canonical_name", "")
-            for m in matches
-            if m.get("object_type") == object_type and m.get("allowed") is not False and m.get("canonical_name")
-        ]
-    )
-
-
-def _dataset_candidates(matches: list[dict[str, Any]]) -> list[str]:
-    return _unique_keep_order([m.get("dataset", "") for m in matches if m.get("dataset")])
-
-
-def _safe_selected_values(candidates: list[str], values: list[Any]) -> list[str]:
-    candidate_set = set(candidates)
-    out: list[str] = []
-    for value in values:
-        if not isinstance(value, str):
-            continue
-        normalized = value.strip()
-        if not normalized or normalized not in candidate_set:
-            continue
-        if normalized not in out:
-            out.append(normalized)
-    return out
-
-
 def build_semantic_plan(
     extracted_features: dict[str, Any],
     token_hits: dict[str, Any],
+    semantic_layer: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     matches = token_hits.get("matches", []) or []
 
     selected_metrics = _canonical_candidates(matches, "metric")
     selected_dimensions = _canonical_candidates(matches, "dimension")
     dataset_candidates = _dataset_candidates(matches)
+    primary_dataset = dataset_candidates[0] if dataset_candidates else ""
 
-    selected_filters = _build_step_b_filters(extracted_features)
+    selected_filters = _build_step_b_filters(extracted_features, semantic_layer, primary_dataset)
     selected_filters.extend(
         _build_time_filter_from_bounds(
             str(extracted_features.get("time_start", "") or ""),
             str(extracted_features.get("time_end", "") or ""),
+            primary_dataset,
+            semantic_layer,
         )
     )
 
@@ -176,6 +285,7 @@ def merge_llm_selection_into_plan(
     llm_selection: dict[str, Any],
     token_hits: dict[str, Any],
     extracted_features: dict[str, Any],
+    semantic_layer: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Deterministically assemble semantic plan from Step C candidates + LLM selection."""
     matches = token_hits.get("matches", []) or []
@@ -195,18 +305,22 @@ def merge_llm_selection_into_plan(
     if not selected_datasets:
         selected_datasets = dataset_candidates
 
+    primary_dataset = selected_datasets[0] if selected_datasets else ""
+
     selected_filters: list[dict[str, Any]] = []
     llm_filters = llm_selection.get("selected_filters", []) or []
     if isinstance(llm_filters, list):
         selected_filters = [f for f in llm_filters if isinstance(f, dict)]
 
     if not selected_filters:
-        selected_filters = _build_step_b_filters(extracted_features)
+        selected_filters = _build_step_b_filters(extracted_features, semantic_layer, primary_dataset)
 
     selected_filters.extend(
         _build_time_filter_from_bounds(
             str(extracted_features.get("time_start", "") or ""),
             str(extracted_features.get("time_end", "") or ""),
+            primary_dataset,
+            semantic_layer,
         )
     )
 

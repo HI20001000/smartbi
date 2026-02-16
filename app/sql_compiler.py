@@ -40,6 +40,12 @@ def _build_semantic_lookup(dataset_name: str, semantic_layer: dict[str, Any]) ->
         if canonical and expr:
             dimension_expr_by_name[canonical] = expr
 
+    for time_dimension in dataset.get("time_dimensions", []) or []:
+        canonical = f"{dataset_name}.{time_dimension.get('name', '')}"
+        expr = str(time_dimension.get("expr", "") or "").strip()
+        if canonical and expr:
+            dimension_expr_by_name[canonical] = expr
+
     for entity_name, entity in entities.items():
         for field in entity.get("fields", []) or []:
             canonical = f"{entity_name}.{field.get('name', '')}"
@@ -109,16 +115,17 @@ def compile_sql_from_semantic_plan(
         field = str(f.get("field", "") or "").strip()
         op = str(f.get("op", "") or "").strip().lower()
         value = f.get("value")
+        field_expr = lookup.dimension_expr_by_name.get(field, field)
 
         if op == "between" and isinstance(value, list) and len(value) == 2:
             where_parts.append(
-                f"{field} BETWEEN {_quote_sql_value(value[0])} AND {_quote_sql_value(value[1])}"
+                f"{field_expr} BETWEEN {_quote_sql_value(value[0])} AND {_quote_sql_value(value[1])}"
             )
         elif op in {"=", "!=", ">", ">=", "<", "<="}:
-            where_parts.append(f"{field} {op} {_quote_sql_value(value)}")
+            where_parts.append(f"{field_expr} {op} {_quote_sql_value(value)}")
         elif op == "in" and isinstance(value, list) and value:
             value_sql = ", ".join(_quote_sql_value(v) for v in value)
-            where_parts.append(f"{field} IN ({value_sql})")
+            where_parts.append(f"{field_expr} IN ({value_sql})")
         elif isinstance(f.get("expr"), str) and f["expr"].strip():
             where_parts.append(f["expr"].strip())
 

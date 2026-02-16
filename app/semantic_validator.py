@@ -61,6 +61,10 @@ def _build_valid_canonical_sets(semantic_layer: dict[str, Any]) -> tuple[set[str
             name = str(dimension.get("name", "") or "").strip()
             if name:
                 dimension_set.add(f"{dataset_name}.{name}")
+        for time_dimension in dataset.get("time_dimensions", []) or []:
+            name = str(time_dimension.get("name", "") or "").strip()
+            if name:
+                dimension_set.add(f"{dataset_name}.{name}")
 
     for entity_name, entity in entities.items():
         for field in entity.get("fields", []) or []:
@@ -145,8 +149,21 @@ def validate_semantic_plan(
         valid_metrics, valid_dimensions = _build_valid_canonical_sets(semantic_layer)
         invalid_metrics = [m for m in selected_metrics if isinstance(m, str) and m not in valid_metrics]
         invalid_dimensions = [d for d in selected_dimensions if isinstance(d, str) and d not in valid_dimensions]
-        if invalid_metrics or invalid_dimensions:
-            invalid_text = ", ".join(invalid_metrics + invalid_dimensions)
+        invalid_filter_fields = []
+        for f in filters:
+            if not isinstance(f, dict):
+                continue
+            field = f.get("field")
+            if not isinstance(field, str):
+                continue
+            normalized_field = field.strip()
+            if not normalized_field or "." not in normalized_field:
+                continue
+            if normalized_field not in valid_dimensions:
+                invalid_filter_fields.append(normalized_field)
+
+        if invalid_metrics or invalid_dimensions or invalid_filter_fields:
+            invalid_text = ", ".join(invalid_metrics + invalid_dimensions + invalid_filter_fields)
             _add_error("INVALID_CANONICAL_REF", f"選取了語意層不存在的欄位：{invalid_text}")
 
         first_dataset = ""
