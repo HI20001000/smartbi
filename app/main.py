@@ -26,7 +26,15 @@ def main():
     session = LLMChatSession(settings)
     semantic_layer = load_semantic_layer()
     governance_limits = get_governance(semantic_layer)
-    matcher = SemanticTokenMatcher("app/semantics/smartbi_demo_macau_banking_semantic.yaml")
+    matcher = SemanticTokenMatcher(
+        "app/semantics/smartbi_demo_macau_banking_semantic.yaml",
+        embedding_base_url=settings.embedding_url,
+        embedding_model=settings.embedding_model,
+        embedding_api_key=settings.embedding_api_key,
+        reranker_base_url=settings.reranker_url,
+        reranker_model=settings.reranker_model,
+        reranker_api_key=settings.reranker_api_key,
+    )
 
     print_startup_ui(
         model=settings.llm_model,
