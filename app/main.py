@@ -79,16 +79,7 @@ def main():
                 llm_selection=llm_selection,
                 token_hits=token_hits,
                 extracted_features=features,
-            )
-            llm_selection = session.select_semantic_plan_with_llm(
-                user_input=user_input,
-                token_hits=token_hits,
-                draft_plan=draft_plan,
-            )
-            enhanced_plan = merge_llm_selection_into_plan(
-                draft_plan=draft_plan,
-                llm_selection=llm_selection,
-                token_hits=token_hits,
+                semantic_layer=semantic_layer,
             )
 
             validation = validate_semantic_plan(
