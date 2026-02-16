@@ -1,4 +1,5 @@
 from datetime import datetime
+import time
 
 from dotenv import load_dotenv
 
@@ -12,7 +13,7 @@ from app.query_executor import SQLQueryExecutor
 from app.semantic_loader import load_semantic_layer, get_governance
 from app.semantic_validator import validate_semantic_plan
 from app.sql_compiler import compile_sql_from_semantic_plan
-from app.sql_planner import build_semantic_plan
+from app.sql_planner import merge_llm_selection_into_plan
 from app.token_matcher import SemanticTokenMatcher
 
 
@@ -70,9 +71,14 @@ def main():
             
             token_hits = matcher.match(features)
             print(f"\n\nStep C Token 命中結果：{token_hits}\n\n")
-            enhanced_plan = build_semantic_plan(
-                extracted_features=features,
+            llm_selection = session.select_semantic_plan_with_llm(
+                user_input=user_input,
                 token_hits=token_hits,
+            )
+            enhanced_plan = merge_llm_selection_into_plan(
+                llm_selection=llm_selection,
+                token_hits=token_hits,
+                extracted_features=features,
             )
 
             validation = validate_semantic_plan(
@@ -83,21 +89,14 @@ def main():
             )
 
             generated_sql = ""
+            compile_start = time.perf_counter()
             if validation.get("ok"):
-                try:
-                    generated_sql = session.generate_sql_from_json_plan_with_llm(
-                        user_input=user_input,
-                        json_plan=enhanced_plan,
-                        semantic_layer=semantic_layer,
-                    )
-                    if not generated_sql or "select *" in generated_sql.lower():
-                        raise ValueError("LLM SQL invalid")
-                except Exception:
-                    generated_sql = compile_sql_from_semantic_plan(
-                        enhanced_plan=enhanced_plan,
-                        semantic_layer=semantic_layer,
-                        limit=governance_limits.get("max_rows", 200),
-                    )
+                generated_sql = compile_sql_from_semantic_plan(
+                    enhanced_plan=enhanced_plan,
+                    semantic_layer=semantic_layer,
+                    limit=governance_limits.get("max_rows", 200),
+                )
+            compile_ms = round((time.perf_counter() - compile_start) * 1000, 2)
 
             missing_db_fields = [
                 name
@@ -137,11 +136,23 @@ def main():
                 except Exception as exc:
                     chart_status = f"Step G/H/I 略過或失敗：{exc}"
 
+            metrics_payload = {
+                "validation_ok": validation.get("ok", False),
+                "validation_error_codes": validation.get("error_codes", []),
+                "selected_metrics_count": len(enhanced_plan.get("selected_metrics", []) or []),
+                "selected_dimensions_count": len(enhanced_plan.get("selected_dimensions", []) or []),
+                "selected_filters_count": len(enhanced_plan.get("selected_filters", []) or []),
+                "compile_elapsed_ms": compile_ms,
+                "sql_generated": bool(generated_sql),
+            }
+
             print(
                 f"Step C Token 命中結果：{token_hits}\n"
-                f"Step D 規劃結果（Deterministic）：{enhanced_plan}\n"
+                f"Step D LLM 選擇結果：{llm_selection}\n"
+                f"Step D2 合併後計畫（Deterministic）：{enhanced_plan}\n"
                 f"Step E 規則校驗：{validation}\n"
                 f"Step F SQL 生成結果：\n{generated_sql if generated_sql else '[尚未生成，請先修正校驗錯誤]'}\n"
+                f"Observability Metrics：{metrics_payload}\n"
                 f"{chart_status}\n"
             )
             continue
