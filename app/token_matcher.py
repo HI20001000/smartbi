@@ -462,18 +462,10 @@ class SemanticTokenMatcher:
         blocked = self._merge_matches(blocked, retrieved_blocked)
 
         matches = self._merge_matches(exact_matches, retrieved_allowed)
-        semantic_refs = self._build_semantic_refs(extracted_features)
-
         return {
             "tokens": extracted_features.get("tokens", []) or [],
             "time_start": extracted_features.get("time_start", ""),
             "time_end": extracted_features.get("time_end", ""),
             "matches": matches,
             "blocked_matches": blocked,
-            "semantic_retrieval": {
-                "query": semantic_query,
-                "embedding_hits": embedding_hits,
-                "reranked_hits": reranked_hits,
-            },
-            "semantic_refs": semantic_refs,
         }
