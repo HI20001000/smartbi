@@ -114,8 +114,11 @@ def compile_sql_from_semantic_plan(
             where_parts.append(
                 f"{field} BETWEEN {_quote_sql_value(value[0])} AND {_quote_sql_value(value[1])}"
             )
-        elif op == "=":
-            where_parts.append(f"{field} = {_quote_sql_value(value)}")
+        elif op in {"=", "!=", ">", ">=", "<", "<="}:
+            where_parts.append(f"{field} {op} {_quote_sql_value(value)}")
+        elif op == "in" and isinstance(value, list) and value:
+            value_sql = ", ".join(_quote_sql_value(v) for v in value)
+            where_parts.append(f"{field} IN ({value_sql})")
         elif isinstance(f.get("expr"), str) and f["expr"].strip():
             where_parts.append(f["expr"].strip())
 

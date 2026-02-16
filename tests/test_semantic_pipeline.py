@@ -45,7 +45,6 @@ class SemanticPipelineTests(unittest.TestCase):
             "selected_dimensions": ["sales.biz_date"],
             "selected_dataset_candidates": ["sales", "other_ds"],
             "selected_filters": [],
-            "confidence": 0.6,
         }
         features = {"filters": [], "time_start": "", "time_end": ""}
 
@@ -76,6 +75,27 @@ class SemanticPipelineTests(unittest.TestCase):
         self.assertEqual(merged["selected_metrics"], ["sales.revenue"])
         self.assertEqual(merged["selected_dimensions"], ["sales.biz_date"])
         self.assertEqual(merged["selected_dataset_candidates"], ["sales"])
+
+    def test_merge_llm_selection_normalizes_step_b_filter_expr(self):
+        token_hits = {
+            "matches": [
+                {"object_type": "metric", "canonical_name": "sales.revenue", "dataset": "sales", "allowed": True},
+            ]
+        }
+        llm_selection = {
+            "selected_metrics": ["sales.revenue"],
+            "selected_dimensions": [],
+            "selected_dataset_candidates": ["sales"],
+            "selected_filters": [],
+        }
+        features = {"filters": ["地區=澳門半島"], "time_start": "", "time_end": ""}
+
+        merged = merge_llm_selection_into_plan(llm_selection, token_hits, features)
+
+        self.assertEqual(
+            merged["selected_filters"],
+            [{"field": "地區", "op": "=", "value": "澳門半島", "source": "step_b_filters"}],
+        )
 
     def test_validator_returns_error_code_for_invalid_canonical(self):
         plan = {
