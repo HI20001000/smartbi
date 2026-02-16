@@ -39,6 +39,14 @@ class Settings:
     db_name: str | None = None
     chart_output_dir: str = "artifacts/charts"
 
+    embedding_url: str | None = None
+    embedding_model: str | None = None
+    embedding_api_key: str = "empty"
+    reranker_url: str | None = None
+    reranker_model: str | None = None
+    reranker_api_key: str = "empty"
+    reranker_score_threshold: float = 0.0
+
     @staticmethod
     def load() -> "Settings":
         base_url = _get("LLM_BASE_URL")
@@ -70,4 +78,11 @@ class Settings:
             db_password=_get_first(["DB_PASSWORD", "MYSQL_PASSWORD"]),
             db_name=_get_first(["DB_NAME", "MYSQL_DATABASE"]),
             chart_output_dir=_get("CHART_OUTPUT_DIR", "artifacts/charts") or "artifacts/charts",
+            embedding_url=_get("EMBEDDING_URL"),
+            embedding_model=_get("EMBEDDING_MODEL"),
+            embedding_api_key=_get_first(["EMBEDDING_API_KEY", "MBEDDING_API_KEY"], "empty") or "empty",
+            reranker_url=_get("RERANKER_URL"),
+            reranker_model=_get("RERANKER_MODEL"),
+            reranker_api_key=_get("RERANKER_API_KEY", "empty") or "empty",
+            reranker_score_threshold=float(_get("RERANKER_SCORE_THRESHOLD", "0") or "0"),
         )
