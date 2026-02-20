@@ -411,8 +411,11 @@ def main():
                         f"Step H 圖表規劃：{chart_spec}\n"
                         f"Step I 圖表輸出：{chart_path}"
                     )
-                    summary_text = session.summarize_query_result_with_llm(user_input, result.rows, max_rows=20)
-                    summary_status = _dark_log_block(f"Step J 數據摘要：\n{summary_text}")
+                    try:
+                        summary_text = session.summarize_query_result_with_llm(user_input, result.rows, max_rows=20)
+                        summary_status = _dark_log_block(f"Step J 數據摘要：\n{summary_text}")
+                    except Exception as summary_exc:
+                        summary_status = f"Step J 數據摘要：略過（摘要生成失敗：{summary_exc}）"
                     if retry_hint:
                         chart_status += retry_hint
                 except Exception as exc:
