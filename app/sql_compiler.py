@@ -4,6 +4,19 @@ from dataclasses import dataclass
 from typing import Any
 
 
+def _parse_allowed_flag(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    text = str(value).strip().lower()
+    if text in {"true", "1", "yes", "y", "allow", "allowed"}:
+        return True
+    if text in {"false", "0", "no", "n", "deny", "denied"}:
+        return False
+    return default
+
+
 @dataclass(frozen=True)
 class SemanticLookup:
     dataset_name: str
@@ -69,6 +82,13 @@ def _build_semantic_lookup(dataset_name: str, semantic_layer: dict[str, Any]) ->
         for field in entity.get("fields", []) or []:
             canonical = f"{entity_name}.{field.get('name', '')}"
             expr = str(field.get("expr", "") or "").strip()
+            if canonical and expr:
+                dimension_expr_by_name[canonical] = expr
+        for sensitive_field in entity.get("sensitive_fields", []) or []:
+            if not _parse_allowed_flag(sensitive_field.get("allowed", False), default=False):
+                continue
+            canonical = f"{entity_name}.{sensitive_field.get('name', '')}"
+            expr = str(sensitive_field.get("expr", "") or "").strip()
             if canonical and expr:
                 dimension_expr_by_name[canonical] = expr
 

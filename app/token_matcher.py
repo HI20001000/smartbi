@@ -22,6 +22,21 @@ class SemanticEntry:
     allowed: bool = True
 
 
+
+
+def _parse_allowed_flag(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    if isinstance(value, (int, float)):
+        return bool(value)
+    text = str(value).strip().lower()
+    if text in {"true", "1", "yes", "y", "allow", "allowed"}:
+        return True
+    if text in {"false", "0", "no", "n", "deny", "denied"}:
+        return False
+    return default
 class SemanticTokenMatcher:
     """Token matcher over semantic-layer metadata.
 
@@ -126,7 +141,7 @@ class SemanticTokenMatcher:
                         aliases=tuple(self._collect_aliases(field)),
                         entity=entity_name,
                         table=table,
-                        allowed=bool(field.get("allowed", False)),
+                        allowed=_parse_allowed_flag(field.get("allowed", False), default=False),
                     )
                 )
 
