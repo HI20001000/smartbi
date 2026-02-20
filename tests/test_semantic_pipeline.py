@@ -127,6 +127,79 @@ class SemanticPipelineTests(unittest.TestCase):
             [{"field": "sales.biz_date", "op": "between", "value": ["2024-01-01", "2024-01-31"], "source": "step_b_time_bounds"}],
         )
 
+    def test_merge_llm_selection_keeps_is_not_null_filter(self):
+        token_hits = {
+            "matches": [
+                {"object_type": "metric", "canonical_name": "credit_score_monthly.avg_credit_score", "dataset": "credit_score_monthly", "allowed": True},
+                {"object_type": "dimension", "canonical_name": "credit_score_monthly.score_band", "dataset": "credit_score_monthly", "allowed": True},
+            ]
+        }
+        llm_selection = {
+            "selected_metrics": ["credit_score_monthly.avg_credit_score"],
+            "selected_dimensions": ["credit_score_monthly.score_band"],
+            "selected_dataset_candidates": ["credit_score_monthly"],
+            "selected_filters": [
+                {"field": "credit_score_monthly.score_band", "op": "is not null", "value": None},
+            ],
+        }
+        features = {"filters": [], "time_start": "2026-01-01", "time_end": "2026-01-31"}
+
+        semantic_layer = {
+            "entities": {},
+            "datasets": {
+                "credit_score_monthly": {
+                    "from": "fact_credit_score_monthly as cs",
+                    "metrics": [{"name": "avg_credit_score", "expr": "cs.score", "type": "avg"}],
+                    "dimensions": [{"name": "score_band", "expr": "cs.score_band"}],
+                    "time_dimensions": [{"name": "yyyy_mm", "expr": "cs.yyyy_mm", "grain": "month"}],
+                    "joins": [],
+                }
+            },
+        }
+
+        merged = merge_llm_selection_into_plan(llm_selection, token_hits, features, semantic_layer=semantic_layer)
+
+        self.assertIn({"field": "credit_score_monthly.score_band", "op": "is not null"}, merged["selected_filters"])
+
+    def test_merge_llm_selection_uses_query_text_two_month_bounds_when_detected(self):
+        token_hits = {
+            "matches": [
+                {"object_type": "metric", "canonical_name": "credit_score_monthly.avg_credit_score", "dataset": "credit_score_monthly", "allowed": True},
+            ]
+        }
+        llm_selection = {
+            "selected_metrics": ["credit_score_monthly.avg_credit_score"],
+            "selected_dimensions": [],
+            "selected_dataset_candidates": ["credit_score_monthly"],
+            "selected_filters": [],
+        }
+        features = {
+            "filters": [],
+            "time_start": "2025-12-01",
+            "time_end": "2025-12-31",
+            "query_text": "比較 2025-12 與 2026-01 信用分 band 分布",
+        }
+
+        semantic_layer = {
+            "entities": {},
+            "datasets": {
+                "credit_score_monthly": {
+                    "from": "fact_credit_score_monthly as cs",
+                    "metrics": [{"name": "avg_credit_score", "expr": "cs.score", "type": "avg"}],
+                    "dimensions": [],
+                    "time_dimensions": [{"name": "yyyy_mm", "expr": "cs.yyyy_mm", "grain": "month"}],
+                    "joins": [],
+                }
+            },
+        }
+
+        merged = merge_llm_selection_into_plan(llm_selection, token_hits, features, semantic_layer=semantic_layer)
+
+        self.assertEqual(
+            merged["selected_filters"],
+            [{"field": "credit_score_monthly.yyyy_mm", "op": "between", "value": ["2025-12", "2026-01"], "source": "query_text_month_bounds"}],
+        )
+
     def test_merge_llm_selection_normalizes_month_grain_time_bounds(self):
         token_hits = {
             "matches": [
@@ -244,6 +317,34 @@ class SemanticPipelineTests(unittest.TestCase):
 
         self.assertIn("bal.biz_date BETWEEN '2024-01-01' AND '2024-12-31'", sql)
         self.assertNotIn("2026-01-01", sql)
+
+    def test_compiler_supports_is_not_null_filter_operator(self):
+        semantic_layer = {
+            "entities": {},
+            "datasets": {
+                "credit_score_monthly": {
+                    "from": "fact_credit_score_monthly as cs",
+                    "metrics": [{"name": "avg_credit_score", "expr": "cs.score", "type": "avg"}],
+                    "dimensions": [{"name": "score_band", "expr": "cs.score_band"}],
+                    "time_dimensions": [{"name": "yyyy_mm", "expr": "cs.yyyy_mm", "grain": "month"}],
+                    "joins": [],
+                }
+            },
+        }
+        plan = {
+            "selected_metrics": ["credit_score_monthly.avg_credit_score"],
+            "selected_dimensions": ["credit_score_monthly.score_band"],
+            "selected_filters": [
+                {"field": "credit_score_monthly.score_band", "op": "is not null"},
+                {"field": "credit_score_monthly.yyyy_mm", "op": "between", "value": ["2025-12", "2026-01"]},
+            ],
+            "selected_dataset_candidates": ["credit_score_monthly"],
+        }
+
+        sql = compile_sql_from_semantic_plan(plan, semantic_layer)
+
+        self.assertIn("cs.score_band IS NOT NULL", sql)
+        self.assertIn("cs.yyyy_mm BETWEEN '2025-12' AND '2026-01'", sql)
 
     def test_compiler_supports_yaml_boolean_true_key_for_join_on(self):
         semantic_layer = {

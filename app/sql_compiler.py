@@ -207,6 +207,10 @@ def compile_sql_from_semantic_plan(
         elif op == "in" and isinstance(value, list) and value:
             value_sql = ", ".join(_quote_sql_value(v) for v in value)
             where_parts.append(f"{field_expr} IN ({value_sql})")
+        elif op == "is null":
+            where_parts.append(f"{field_expr} IS NULL")
+        elif op == "is not null":
+            where_parts.append(f"{field_expr} IS NOT NULL")
         elif isinstance(f.get("expr"), str) and f["expr"].strip():
             where_parts.append(f["expr"].strip())
 
