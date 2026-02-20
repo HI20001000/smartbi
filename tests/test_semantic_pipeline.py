@@ -127,7 +127,7 @@ class SemanticPipelineTests(unittest.TestCase):
             [{"field": "sales.biz_date", "op": "between", "value": ["2024-01-01", "2024-01-31"], "source": "step_b_time_bounds"}],
         )
 
-    def test_merge_llm_selection_keeps_is_not_null_filter(self):
+    def test_merge_llm_selection_ignores_llm_filters(self):
         token_hits = {
             "matches": [
                 {"object_type": "metric", "canonical_name": "credit_score_monthly.avg_credit_score", "dataset": "credit_score_monthly", "allowed": True},
@@ -159,9 +159,12 @@ class SemanticPipelineTests(unittest.TestCase):
 
         merged = merge_llm_selection_into_plan(llm_selection, token_hits, features, semantic_layer=semantic_layer)
 
-        self.assertIn({"field": "credit_score_monthly.score_band", "op": "is not null"}, merged["selected_filters"])
+        self.assertEqual(
+            merged["selected_filters"],
+            [{"field": "credit_score_monthly.yyyy_mm", "op": "between", "value": ["2026-01", "2026-01"], "source": "step_b_time_bounds"}],
+        )
 
-    def test_merge_llm_selection_prunes_step_b_month_expr_filters_and_normalizes_unary_op(self):
+    def test_merge_llm_selection_prunes_step_b_month_expr_filters(self):
         token_hits = {
             "matches": [
                 {"object_type": "dimension", "canonical_name": "credit_score_monthly.score_band", "dataset": "credit_score_monthly", "allowed": True},
@@ -198,7 +201,6 @@ class SemanticPipelineTests(unittest.TestCase):
 
         merged = merge_llm_selection_into_plan(llm_selection, token_hits, features, semantic_layer=semantic_layer)
 
-        self.assertIn({"field": "credit_score_monthly.score_band", "op": "is not null"}, merged["selected_filters"])
         self.assertIn(
             {"field": "credit_score_monthly.yyyy_mm", "op": "between", "value": ["2025-12", "2026-01"], "source": "query_text_month_bounds"},
             merged["selected_filters"],
@@ -357,7 +359,7 @@ class SemanticPipelineTests(unittest.TestCase):
         self.assertIn("core_customer.customer_id = 10001", sql)
         self.assertNotIn("WHERE 客戶ID=10001", sql)
 
-    def test_merge_llm_selection_maps_dataset_prefixed_customer_id_filter_from_llm(self):
+    def test_merge_llm_selection_ignores_dataset_prefixed_customer_id_filter_from_llm(self):
         token_hits = {
             "matches": [
                 {"object_type": "dimension", "canonical_name": "credit_score_monthly.score_band", "dataset": "credit_score_monthly", "allowed": True},
@@ -395,10 +397,7 @@ class SemanticPipelineTests(unittest.TestCase):
 
         merged = merge_llm_selection_into_plan(llm_selection, token_hits, features, semantic_layer=semantic_layer)
 
-        self.assertEqual(
-            merged["selected_filters"],
-            [{"field": "customer.customer_id", "op": "=", "value": "10001"}],
-        )
+        self.assertEqual(merged["selected_filters"], [])
 
     def test_merge_and_compile_support_allowed_sensitive_entity_fields(self):
         token_hits = {
@@ -450,7 +449,7 @@ class SemanticPipelineTests(unittest.TestCase):
         sql = compile_sql_from_semantic_plan(merged, semantic_layer)
         self.assertIn("core_customer.full_name AS customer_full_name", sql)
         self.assertIn("core_customer.id_no AS customer_id_no", sql)
-        self.assertIn("core_customer.customer_id = '10001'", sql)
+        self.assertNotIn("core_customer.customer_id = '10001'", sql)
 
     def test_merge_llm_selection_uses_query_text_two_month_bounds_when_detected(self):
         token_hits = {
