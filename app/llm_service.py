@@ -1,4 +1,5 @@
 import json
+from decimal import Decimal
 
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langchain_openai import ChatOpenAI
@@ -234,3 +235,34 @@ class LLMChatSession:
             "time_start": _date_or_empty(parsed.get("time_start")),
             "time_end": _date_or_empty(parsed.get("time_end")),
         }
+
+    def summarize_query_result_with_llm(self, user_input: str, rows: list[dict], max_rows: int = 20) -> str:
+        sample_rows = rows[: max(1, int(max_rows))]
+
+        def _json_fallback(value: object) -> object:
+            if isinstance(value, Decimal):
+                return float(value)
+            return str(value)
+
+        prompt = [
+            SystemMessage(
+                content=(
+                    "你是 SmartBI 報表摘要助手。"
+                    "請根據使用者問題與查詢結果，輸出 2~4 句繁體中文摘要。"
+                    "要求：聚焦關鍵數據、趨勢與可行觀察，不要杜撰資料。"
+                    "若資料筆數很少，請直接點出樣本有限。"
+                )
+            ),
+            HumanMessage(
+                content=(
+                    f"user_input={user_input}\n"
+                    f"rows_json={json.dumps(sample_rows, ensure_ascii=False, default=_json_fallback)}"
+                )
+            ),
+        ]
+
+        try:
+            resp = self.client.invoke(prompt)
+            return getattr(resp, "content", str(resp)).strip()
+        except Exception as exc:
+            return f"（摘要生成失敗：{exc}）"
