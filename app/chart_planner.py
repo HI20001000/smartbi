@@ -7,6 +7,9 @@ from typing import Any
 from app.query_executor import QueryResult
 
 
+ROW_INDEX_X_KEY = "__row_index__"
+
+
 @dataclass(frozen=True)
 class ChartSpec:
     chart_type: str
@@ -42,4 +45,5 @@ def build_chart_spec(query_result: QueryResult, title: str = "SQL Query Result")
     if non_numeric_cols:
         return ChartSpec(chart_type="bar", x=non_numeric_cols[0], y=[numeric_cols[0]], title=title)
 
-    return ChartSpec(chart_type="table", x=None, y=numeric_cols[:3], title=title)
+    # only numeric columns are present: still render a bar chart using row index as x-axis
+    return ChartSpec(chart_type="bar", x=ROW_INDEX_X_KEY, y=[numeric_cols[0]], title=title)

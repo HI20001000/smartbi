@@ -1,7 +1,7 @@
 from decimal import Decimal
 import unittest
 
-from app.chart_planner import build_chart_spec
+from app.chart_planner import ROW_INDEX_X_KEY, build_chart_spec
 from app.query_executor import QueryResult
 
 
@@ -35,6 +35,21 @@ class ChartPlannerTests(unittest.TestCase):
         self.assertEqual(spec.chart_type, "line")
         self.assertEqual(spec.x, "month")
         self.assertEqual(spec.y, ["total_amount"])
+
+    def test_build_chart_spec_uses_row_index_for_numeric_only_results(self):
+        result = QueryResult(
+            columns=["deposit_balance_daily_deposit_end_balance"],
+            rows=[
+                {"deposit_balance_daily_deposit_end_balance": Decimal("10.0")},
+                {"deposit_balance_daily_deposit_end_balance": Decimal("20.0")},
+            ],
+        )
+
+        spec = build_chart_spec(result, title="t")
+
+        self.assertEqual(spec.chart_type, "bar")
+        self.assertEqual(spec.x, ROW_INDEX_X_KEY)
+        self.assertEqual(spec.y, ["deposit_balance_daily_deposit_end_balance"])
 
 
 if __name__ == "__main__":
