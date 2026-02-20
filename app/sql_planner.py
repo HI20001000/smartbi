@@ -281,6 +281,30 @@ def build_semantic_plan(
     }
 
 
+def _infer_dimensions_from_features(
+    extracted_features: dict[str, Any],
+    selected_dataset: str,
+    semantic_layer: dict[str, Any] | None,
+) -> list[str]:
+    if not selected_dataset or semantic_layer is None:
+        return []
+
+    asked_dimensions = extracted_features.get("dimensions", []) or []
+    if not isinstance(asked_dimensions, list) or not any(str(d).strip() for d in asked_dimensions):
+        return []
+
+    dataset = (semantic_layer.get("datasets", {}) or {}).get(selected_dataset, {}) or {}
+    inferred: list[str] = []
+
+    for time_dimension in dataset.get("time_dimensions", []) or []:
+        name = str(time_dimension.get("name", "") or "").strip()
+        if name:
+            inferred.append(f"{selected_dataset}.{name}")
+            break
+
+    return inferred
+
+
 def _sanitize_llm_filters(
     llm_filters: list[Any],
     semantic_layer: dict[str, Any] | None,
@@ -332,12 +356,15 @@ def merge_llm_selection_into_plan(
     # fallback: if LLM did not select, use deterministic candidate order from Step C
     if not selected_metrics:
         selected_metrics = metric_candidates
-    if not selected_dimensions:
-        selected_dimensions = dimension_candidates
     if not selected_datasets:
         selected_datasets = dataset_candidates
 
     primary_dataset = selected_datasets[0] if selected_datasets else ""
+
+    if not selected_dimensions:
+        selected_dimensions = dimension_candidates
+    if not selected_dimensions:
+        selected_dimensions = _infer_dimensions_from_features(extracted_features, primary_dataset, semantic_layer)
 
     selected_filters: list[dict[str, Any]] = []
     llm_filters = llm_selection.get("selected_filters", []) or []
