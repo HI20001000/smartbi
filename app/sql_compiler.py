@@ -10,6 +10,7 @@ class SemanticLookup:
     metric_expr_by_name: dict[str, str]
     metric_type_by_name: dict[str, str]
     dimension_expr_by_name: dict[str, str]
+    first_time_name: str
     first_time_expr: str
     from_clause: str
     join_clauses: list[tuple[str, str]]
@@ -54,10 +55,13 @@ def _build_semantic_lookup(dataset_name: str, semantic_layer: dict[str, Any]) ->
         if canonical and expr:
             dimension_expr_by_name[canonical] = expr
 
+    first_time_name = ""
     first_time_expr = ""
     for time_dimension in dataset.get("time_dimensions", []) or []:
+        name = str(time_dimension.get("name", "") or "").strip()
         expr = str(time_dimension.get("expr", "") or "").strip()
         if expr:
+            first_time_name = name
             first_time_expr = expr
             break
 
@@ -88,11 +92,27 @@ def _build_semantic_lookup(dataset_name: str, semantic_layer: dict[str, Any]) ->
         if str(entity_name) == "calendar":
             calendar_join_on = on_clause
 
+    if not calendar_join_on and calendar_table and first_time_name and first_time_expr:
+        calendar_expr = ""
+        calendar_entity = entities.get("calendar", {}) or {}
+        for field in calendar_entity.get("fields", []) or []:
+            if str(field.get("name", "") or "").strip() != first_time_name:
+                continue
+            calendar_expr = str(field.get("expr", "") or "").strip()
+            if calendar_expr:
+                break
+        if calendar_expr and calendar_expr != first_time_expr:
+            calendar_join_on = f"{first_time_expr} = {calendar_expr}"
+            has_calendar_join = any(entity_name == "calendar" for entity_name, _ in join_clauses)
+            if not has_calendar_join:
+                join_clauses.append(("calendar", f"LEFT JOIN {calendar_table} ON {calendar_join_on}"))
+
     return SemanticLookup(
         dataset_name=dataset_name,
         metric_expr_by_name=metric_expr_by_name,
         metric_type_by_name=metric_type_by_name,
         dimension_expr_by_name=dimension_expr_by_name,
+        first_time_name=first_time_name,
         first_time_expr=first_time_expr,
         from_clause=str(dataset.get("from", "") or "").strip(),
         join_clauses=join_clauses,
@@ -187,6 +207,10 @@ def compile_sql_from_semantic_plan(
         elif op == "in" and isinstance(value, list) and value:
             value_sql = ", ".join(_quote_sql_value(v) for v in value)
             where_parts.append(f"{field_expr} IN ({value_sql})")
+        elif op == "is null":
+            where_parts.append(f"{field_expr} IS NULL")
+        elif op == "is not null":
+            where_parts.append(f"{field_expr} IS NOT NULL")
         elif isinstance(f.get("expr"), str) and f["expr"].strip():
             where_parts.append(f["expr"].strip())
 

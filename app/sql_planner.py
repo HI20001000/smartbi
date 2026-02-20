@@ -159,6 +159,10 @@ def _build_field_alias_lookup(semantic_layer: dict[str, Any] | None, dataset_nam
         _add_alias(alias_lookup, name, canonical)
         for synonym in time_dimension.get("synonyms", []) or []:
             _add_alias(alias_lookup, str(synonym), canonical)
+        grain = str(time_dimension.get("grain", "") or "").strip().lower()
+        if grain == "month":
+            for month_alias in ("月份", "month", "month_id", "年月", "月度"):
+                _add_alias(alias_lookup, month_alias, canonical)
 
     join_entities = [
         str(j.get("entity", "") or "").strip()
@@ -267,6 +271,38 @@ def _resolve_time_filter_field(selected_dataset: str, semantic_layer: dict[str, 
     return "calendar.biz_date"
 
 
+def _resolve_time_dimension_grain(selected_dataset: str, semantic_layer: dict[str, Any] | None) -> str:
+    if not selected_dataset or semantic_layer is None:
+        return ""
+    dataset = (semantic_layer.get("datasets", {}) or {}).get(selected_dataset, {}) or {}
+    for time_dimension in dataset.get("time_dimensions", []) or []:
+        grain = str(time_dimension.get("grain", "") or "").strip().lower()
+        if grain:
+            return grain
+    return ""
+
+
+def _normalize_time_bound_value(value: str, grain: str) -> str:
+    text = value.strip()
+    if grain == "month":
+        month_match = re.match(r"^\d{4}-\d{2}(?:-\d{2})?$", text)
+        if month_match:
+            return text[:7]
+    return text
+
+
+def _extract_month_tokens(query_text: Any) -> list[str]:
+    if not isinstance(query_text, str) or not query_text.strip():
+        return []
+    months = re.findall(r"(\d{4})[-年/](\d{1,2})", query_text)
+    normalized: list[str] = []
+    for year, month in months:
+        mm = month.zfill(2)
+        if 1 <= int(mm) <= 12:
+            normalized.append(f"{year}-{mm}")
+    return _unique_keep_order(normalized)
+
+
 def _build_time_filter_from_bounds(
     time_start: str,
     time_end: str,
@@ -280,14 +316,37 @@ def _build_time_filter_from_bounds(
     if not start or not end:
         return []
 
+    grain = _resolve_time_dimension_grain(selected_dataset, semantic_layer)
+    normalized_start = _normalize_time_bound_value(start, grain)
+    normalized_end = _normalize_time_bound_value(end, grain)
+
     return [
         {
             "field": _resolve_time_filter_field(selected_dataset, semantic_layer),
             "op": "between",
-            "value": [start, end],
+            "value": [normalized_start, normalized_end],
             "source": "step_b_time_bounds",
         }
     ]
+
+
+def _prune_conflicting_month_filters(selected_filters: list[dict[str, Any]], month_field: str) -> list[dict[str, Any]]:
+    pruned: list[dict[str, Any]] = []
+    for f in selected_filters:
+        if not isinstance(f, dict):
+            continue
+        source = str(f.get("source", "") or "")
+        field = str(f.get("field", "") or "")
+        op = str(f.get("op", "") or "").strip().lower()
+        expr = str(f.get("expr", "") or "")
+        if source == "step_b_time_bounds":
+            continue
+        if field == month_field and op in {"=", "between", "in"} and source == "step_b_filters":
+            continue
+        if source == "step_b_filters" and "月份" in expr:
+            continue
+        pruned.append(f)
+    return pruned
 
 
 def build_semantic_plan(
@@ -311,6 +370,20 @@ def build_semantic_plan(
             semantic_layer,
         )
     )
+
+    grain = _resolve_time_dimension_grain(primary_dataset, semantic_layer)
+    month_tokens = _extract_month_tokens(extracted_features.get("query_text", ""))
+    if grain == "month" and len(month_tokens) >= 2:
+        month_field = _resolve_time_filter_field(primary_dataset, semantic_layer)
+        selected_filters = _prune_conflicting_month_filters(selected_filters, month_field)
+        selected_filters.append(
+            {
+                "field": month_field,
+                "op": "between",
+                "value": [month_tokens[0], month_tokens[-1]],
+                "source": "query_text_month_bounds",
+            }
+        )
 
     blocked = token_hits.get("blocked_matches", []) or []
     rejected_candidates = [
@@ -396,6 +469,8 @@ def _sanitize_llm_filters(
 ) -> list[dict[str, Any]]:
     alias_lookup = _build_field_alias_lookup(semantic_layer, selected_dataset)
     valid_canonical_fields = set(alias_lookup.values())
+    allowed_binary_ops = {"between", "=", "!=", ">", ">=", "<", "<=", "in"}
+    allowed_unary_ops = {"is null", "is not null"}
     sanitized: list[dict[str, Any]] = []
 
     for item in llm_filters:
@@ -404,16 +479,25 @@ def _sanitize_llm_filters(
 
         copied = dict(item)
         field = copied.get("field")
+        canonical_field = ""
         if isinstance(field, str) and field.strip():
             normalized_field = _normalize_key(field)
             canonical = alias_lookup.get(normalized_field)
             if canonical:
-                copied["field"] = canonical
-            elif "." in field.strip():
-                if field.strip() not in valid_canonical_fields:
-                    continue
-                copied["field"] = field.strip()
+                canonical_field = canonical
+            elif "." in field.strip() and field.strip() in valid_canonical_fields:
+                canonical_field = field.strip()
             else:
+                continue
+            copied["field"] = canonical_field
+
+        op = str(copied.get("op", "") or "").strip().lower().replace("_", " ")
+        if op:
+            if op in allowed_unary_ops:
+                if not canonical_field:
+                    continue
+                copied = {"field": canonical_field, "op": op}
+            elif op not in allowed_binary_ops:
                 continue
 
         sanitized.append(copied)
@@ -471,6 +555,20 @@ def merge_llm_selection_into_plan(
             semantic_layer,
         )
     )
+
+    grain = _resolve_time_dimension_grain(primary_dataset, semantic_layer)
+    month_tokens = _extract_month_tokens(extracted_features.get("query_text", ""))
+    if grain == "month" and len(month_tokens) >= 2:
+        month_field = _resolve_time_filter_field(primary_dataset, semantic_layer)
+        selected_filters = _prune_conflicting_month_filters(selected_filters, month_field)
+        selected_filters.append(
+            {
+                "field": month_field,
+                "op": "between",
+                "value": [month_tokens[0], month_tokens[-1]],
+                "source": "query_text_month_bounds",
+            }
+        )
 
     blocked = token_hits.get("blocked_matches", []) or []
     rejected_candidates = [
