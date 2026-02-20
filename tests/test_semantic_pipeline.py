@@ -231,6 +231,91 @@ class SemanticPipelineTests(unittest.TestCase):
         self.assertIn("dim_branch.region = '澳門半島'", sql)
 
 
+    def test_merge_llm_selection_drops_invalid_llm_filter_fields(self):
+        token_hits = {
+            "matches": [
+                {"object_type": "metric", "canonical_name": "deposit_balance_daily.deposit_end_balance", "dataset": "deposit_balance_daily", "allowed": True},
+            ]
+        }
+        llm_selection = {
+            "selected_metrics": ["deposit_balance_daily.deposit_end_balance"],
+            "selected_dimensions": [],
+            "selected_dataset_candidates": ["deposit_balance_daily"],
+            "selected_filters": [
+                {"field": "deposit_balance_daily.transaction_date", "op": ">=", "value": "2024-01-01"},
+                {"field": "deposit_balance_daily.transaction_date", "op": "<", "value": "2024-02-01"},
+            ],
+        }
+        features = {"filters": [], "time_start": "2024-01-01", "time_end": "2024-01-31"}
+
+        semantic_layer = {
+            "entities": {},
+            "datasets": {
+                "deposit_balance_daily": {
+                    "from": "fact_account_balance_daily as bal",
+                    "metrics": [{"name": "deposit_end_balance", "expr": "bal.end_balance"}],
+                    "dimensions": [],
+                    "time_dimensions": [{"name": "biz_date", "expr": "bal.biz_date"}],
+                    "joins": [],
+                }
+            },
+        }
+
+        merged = merge_llm_selection_into_plan(llm_selection, token_hits, features, semantic_layer=semantic_layer)
+
+        self.assertEqual(
+            merged["selected_filters"],
+            [{"field": "deposit_balance_daily.biz_date", "op": "between", "value": ["2024-01-01", "2024-01-31"], "source": "step_b_time_bounds"}],
+        )
+
+    def test_merge_llm_selection_infers_time_dimension_when_user_requests_date_trend(self):
+        token_hits = {
+            "matches": [
+                {
+                    "object_type": "metric",
+                    "canonical_name": "deposit_balance_daily.deposit_end_balance",
+                    "dataset": "deposit_balance_daily",
+                    "allowed": True,
+                },
+                {
+                    "object_type": "field",
+                    "canonical_name": "calendar.biz_date",
+                    "dataset": "",
+                    "entity": "calendar",
+                    "allowed": True,
+                },
+            ]
+        }
+        llm_selection = {
+            "selected_metrics": ["deposit_balance_daily.deposit_end_balance"],
+            "selected_dimensions": [],
+            "selected_dataset_candidates": ["deposit_balance_daily"],
+            "selected_filters": [],
+        }
+        features = {"filters": [], "dimensions": ["日期"], "time_start": "2026-01-01", "time_end": "2026-01-31"}
+
+        semantic_layer = {
+            "entities": {
+                "calendar": {
+                    "table": "dim_calendar",
+                    "fields": [{"name": "biz_date", "expr": "dim_calendar.biz_date", "synonyms": ["日期"]}],
+                }
+            },
+            "datasets": {
+                "deposit_balance_daily": {
+                    "from": "fact_account_balance_daily as bal",
+                    "metrics": [{"name": "deposit_end_balance", "expr": "bal.end_balance"}],
+                    "dimensions": [],
+                    "time_dimensions": [{"name": "biz_date", "expr": "bal.biz_date", "synonyms": ["日期"]}],
+                    "joins": [{"entity": "calendar", "on": "bal.biz_date = dim_calendar.biz_date"}],
+                }
+            },
+        }
+
+        merged = merge_llm_selection_into_plan(llm_selection, token_hits, features, semantic_layer=semantic_layer)
+
+        self.assertIn("deposit_balance_daily.biz_date", merged["selected_dimensions"])
+
 
 if __name__ == "__main__":
     unittest.main()

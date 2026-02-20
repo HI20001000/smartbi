@@ -1,4 +1,5 @@
 from datetime import datetime
+import json
 import time
 
 from dotenv import load_dotenv
@@ -19,6 +20,10 @@ from app.token_matcher import SemanticTokenMatcher
 
 def _date_tag() -> str:
     return datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
+
+
+def _pretty(data: object) -> str:
+    return json.dumps(data, ensure_ascii=False, indent=2)
 
 
 def _find_time_between_filter(enhanced_plan: dict) -> tuple[str, str] | None:
@@ -197,12 +202,9 @@ def main():
 
         if intent_result.intent == IntentType.SQL:
             features = session.extract_sql_features_with_llm(user_input)
-            print(
-                f"\n\n{_date_tag()}AI> 已識別為 SQL 任務（Step A）。\n"
-                f"Step B 特徵提取結果：{features}\n\n")
+            print(f"\n{_date_tag()}AI> 已識別為 SQL 任務（Step A）。")
 
             token_hits = matcher.match(features)
-            print(f"\n\nStep C Token 命中結果：{token_hits}\n\n")
             llm_selection = session.select_semantic_plan_with_llm(
                 user_input=user_input,
                 token_hits=token_hits,
@@ -322,13 +324,16 @@ def main():
                 "sql_generated": bool(generated_sql),
             }
 
+            sql_text = generated_sql if generated_sql else "[尚未生成，請先修正校驗錯誤]"
             print(
-                f"Step C Token 命中結果：{token_hits}\n"
-                f"Step D LLM 選擇結果：{llm_selection}\n"
-                f"Step D2 合併後計畫（Deterministic）：{enhanced_plan}\n"
-                f"Step E 規則校驗：{validation}\n"
-                f"Step F SQL 生成結果：\n{generated_sql if generated_sql else '[尚未生成，請先修正校驗錯誤]'}\n"
-                f"Observability Metrics：{metrics_payload}\n"
+                "\n"
+                f"Step B 特徵提取結果：\n{_pretty(features)}\n"
+                f"Step C Token 命中結果：\n{_pretty(token_hits)}\n"
+                f"Step D LLM 選擇結果：\n{_pretty(llm_selection)}\n"
+                f"Step D2 合併後計畫（Deterministic）：\n{_pretty(enhanced_plan)}\n"
+                f"Step E 規則校驗：\n{_pretty(validation)}\n"
+                f"Step F SQL 生成結果：\n{sql_text}\n"
+                f"Observability Metrics：\n{_pretty(metrics_payload)}\n"
                 f"{chart_status}\n"
             )
             continue
