@@ -462,6 +462,25 @@ def _canonicalize_dimensions_for_dataset(
     return _unique_keep_order(normalized)
 
 
+def _filter_dimensions_for_dataset(
+    selected_dimensions: list[str],
+    selected_dataset: str,
+    semantic_layer: dict[str, Any] | None,
+) -> list[str]:
+    if not selected_dimensions or not selected_dataset or semantic_layer is None:
+        return selected_dimensions
+
+    entities = semantic_layer.get("entities", {}) or {}
+    filtered: list[str] = []
+    for dim in selected_dimensions:
+        if not isinstance(dim, str) or "." not in dim:
+            continue
+        owner = dim.split(".", 1)[0]
+        if owner == selected_dataset or owner in entities:
+            filtered.append(dim)
+    return _unique_keep_order(filtered)
+
+
 def _sanitize_llm_filters(
     llm_filters: list[Any],
     semantic_layer: dict[str, Any] | None,
@@ -537,6 +556,7 @@ def merge_llm_selection_into_plan(
         selected_dimensions = dimension_candidates
     if not selected_dimensions:
         selected_dimensions = _infer_dimensions_from_features(extracted_features, primary_dataset, semantic_layer)
+    selected_dimensions = _filter_dimensions_for_dataset(selected_dimensions, primary_dataset, semantic_layer)
     selected_dimensions = _canonicalize_dimensions_for_dataset(selected_dimensions, primary_dataset, semantic_layer)
 
     selected_filters: list[dict[str, Any]] = []
