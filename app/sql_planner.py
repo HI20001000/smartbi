@@ -547,71 +547,24 @@ def _infer_datasets_from_dimensions(
     return inferred
 
 
-def _sanitize_llm_filters(
-    llm_filters: list[Any],
-    semantic_layer: dict[str, Any] | None,
-    selected_dataset: str,
-) -> list[dict[str, Any]]:
-    alias_lookup = _build_field_alias_lookup(semantic_layer, selected_dataset)
-    valid_canonical_fields = set(alias_lookup.values())
-    allowed_binary_ops = {"between", "=", "!=", ">", ">=", "<", "<=", "in"}
-    allowed_unary_ops = {"is null", "is not null"}
-    sanitized: list[dict[str, Any]] = []
-
-    for item in llm_filters:
-        if not isinstance(item, dict):
-            continue
-
-        copied = dict(item)
-        field = copied.get("field")
-        canonical_field = ""
-        if isinstance(field, str) and field.strip():
-            normalized_field = _normalize_key(field)
-            canonical = alias_lookup.get(normalized_field)
-            if canonical:
-                canonical_field = canonical
-            elif "." in field.strip() and field.strip() in valid_canonical_fields:
-                canonical_field = field.strip()
-            elif "." in field.strip():
-                suffix = field.strip().split(".", 1)[1]
-                suffix_canonical = alias_lookup.get(_normalize_key(suffix))
-                if suffix_canonical:
-                    canonical_field = suffix_canonical
-                else:
-                    continue
-            else:
-                continue
-            copied["field"] = canonical_field
-
-        op = str(copied.get("op", "") or "").strip().lower().replace("_", " ")
-        if op:
-            if op in allowed_unary_ops:
-                if not canonical_field:
-                    continue
-                copied = {"field": canonical_field, "op": op}
-            elif op not in allowed_binary_ops:
-                continue
-
-        sanitized.append(copied)
-
-    return sanitized
-
-
 def merge_llm_selection_into_plan(
     llm_selection: dict[str, Any],
     token_hits: dict[str, Any],
     extracted_features: dict[str, Any],
     semantic_layer: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Deterministically assemble semantic plan from Step C candidates + LLM selection."""
+    """Deterministically assemble semantic plan from Step C candidates."""
     matches = token_hits.get("matches", []) or []
     metric_candidates = _canonical_candidates(matches, "metric")
     dimension_candidates = _dimension_candidates(matches)
     dataset_candidates = _dataset_candidates(matches)
 
-    selected_metrics = _safe_selected_values(metric_candidates, llm_selection.get("selected_metrics", []) or [])
-    selected_dimensions = _safe_selected_values(dimension_candidates, llm_selection.get("selected_dimensions", []) or [])
-    selected_datasets = _safe_selected_values(dataset_candidates, llm_selection.get("selected_dataset_candidates", []) or [])
+    # Step D (LLM semantic selection) removed; keep parameter for backward compatibility.
+    _ = llm_selection
+
+    selected_metrics = metric_candidates
+    selected_dimensions = dimension_candidates
+    selected_datasets = dataset_candidates
 
     # fallback: if LLM did not select, use deterministic candidate order from Step C
     if not selected_metrics:
@@ -634,13 +587,7 @@ def merge_llm_selection_into_plan(
     selected_dimensions = _filter_dimensions_for_dataset(selected_dimensions, primary_dataset, semantic_layer)
     selected_dimensions = _canonicalize_dimensions_for_dataset(selected_dimensions, primary_dataset, semantic_layer)
 
-    selected_filters: list[dict[str, Any]] = []
-    llm_filters = llm_selection.get("selected_filters", []) or []
-    if isinstance(llm_filters, list):
-        selected_filters = _sanitize_llm_filters(llm_filters, semantic_layer, primary_dataset)
-
-    if not selected_filters:
-        selected_filters = _build_step_b_filters(extracted_features, semantic_layer, primary_dataset)
+    selected_filters = _build_step_b_filters(extracted_features, semantic_layer, primary_dataset)
 
     selected_filters.extend(
         _build_time_filter_from_bounds(

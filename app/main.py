@@ -331,12 +331,8 @@ def main():
             print(f"\n{_date_tag()}AI> 已識別為 SQL 任務（Step A）。")
 
             token_hits = matcher.match(features)
-            llm_selection = session.select_semantic_plan_with_llm(
-                user_input=user_input,
-                token_hits=token_hits,
-            )
             enhanced_plan = merge_llm_selection_into_plan(
-                llm_selection=llm_selection,
+                llm_selection={},
                 token_hits=token_hits,
                 extracted_features=features,
                 semantic_layer=semantic_layer,
@@ -436,8 +432,7 @@ def main():
                 "\n"
                 f"Step B 特徵提取結果：\n{_pretty(features)}\n"
                 f"Step C Token 命中結果：\n{_pretty(token_hits)}\n"
-                f"Step D LLM 選擇結果：\n{_pretty(llm_selection)}\n"
-                f"Step D2 合併後計畫（Deterministic）：\n{_pretty(enhanced_plan)}\n"
+                f"Step D 合併後計畫（Deterministic）：\n{_pretty(enhanced_plan)}\n"
                 f"Step E 規則校驗：\n{_pretty(validation)}\n"
                 f"Step F SQL 生成結果：\n{sql_text}\n"
                 f"Observability Metrics：\n{_pretty(metrics_payload)}\n"
