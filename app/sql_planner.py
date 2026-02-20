@@ -183,7 +183,7 @@ def _build_field_alias_lookup(semantic_layer: dict[str, Any] | None, dataset_nam
             for synonym in field.get("synonyms", []) or []:
                 _add_alias(alias_lookup, str(synonym), canonical)
             if entity_name == "customer" and name == "customer_id":
-                for customer_id_alias in ("客戶ID", "客户ID", "客戶編號", "客户编号", "cust_id", "client_id"):
+                for customer_id_alias in ("客戶", "客户", "客戶ID", "客户ID", "客戶編號", "客户编号", "cust_id", "client_id"):
                     _add_alias(alias_lookup, customer_id_alias, canonical)
 
     return alias_lookup
@@ -518,6 +518,35 @@ def _filter_dimensions_for_dataset(
     return _unique_keep_order(filtered)
 
 
+def _infer_datasets_from_dimensions(
+    selected_dimensions: list[str],
+    semantic_layer: dict[str, Any] | None,
+) -> list[str]:
+    if not selected_dimensions or semantic_layer is None:
+        return []
+
+    owners = {
+        dim.split(".", 1)[0]
+        for dim in selected_dimensions
+        if isinstance(dim, str) and "." in dim and dim.split(".", 1)[0]
+    }
+    if not owners:
+        return []
+
+    datasets = semantic_layer.get("datasets", {}) or {}
+    inferred: list[str] = []
+    for dataset_name, dataset in datasets.items():
+        join_entities = {
+            str(j.get("entity", "") or "").strip()
+            for j in dataset.get("joins", []) or []
+            if isinstance(j, dict)
+        }
+        available_owners = {dataset_name, *[e for e in join_entities if e]}
+        if owners.issubset(available_owners):
+            inferred.append(dataset_name)
+    return inferred
+
+
 def _sanitize_llm_filters(
     llm_filters: list[Any],
     semantic_layer: dict[str, Any] | None,
@@ -591,13 +620,15 @@ def merge_llm_selection_into_plan(
         selected_metrics = _infer_metrics_from_features(extracted_features, semantic_layer)
     if not selected_datasets:
         selected_datasets = dataset_candidates
+    if not selected_dimensions:
+        selected_dimensions = dimension_candidates
     if not selected_datasets and selected_metrics:
         selected_datasets = _unique_keep_order([m.split(".", 1)[0] for m in selected_metrics if "." in m])
+    if not selected_datasets:
+        selected_datasets = _infer_datasets_from_dimensions(selected_dimensions, semantic_layer)
 
     primary_dataset = selected_datasets[0] if selected_datasets else ""
 
-    if not selected_dimensions:
-        selected_dimensions = dimension_candidates
     if not selected_dimensions:
         selected_dimensions = _infer_dimensions_from_features(extracted_features, primary_dataset, semantic_layer)
     selected_dimensions = _filter_dimensions_for_dataset(selected_dimensions, primary_dataset, semantic_layer)
