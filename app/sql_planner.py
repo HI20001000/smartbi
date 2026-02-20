@@ -182,6 +182,9 @@ def _build_field_alias_lookup(semantic_layer: dict[str, Any] | None, dataset_nam
             _add_alias(alias_lookup, name, canonical)
             for synonym in field.get("synonyms", []) or []:
                 _add_alias(alias_lookup, str(synonym), canonical)
+            if entity_name == "customer" and name == "customer_id":
+                for customer_id_alias in ("客戶ID", "客户ID", "客戶編號", "客户编号", "cust_id", "client_id"):
+                    _add_alias(alias_lookup, customer_id_alias, canonical)
 
     return alias_lookup
 
@@ -244,6 +247,39 @@ def _normalize_filter_field(parsed_filter: dict[str, Any], alias_lookup: dict[st
     }
 
 
+def _expand_filter_shortcuts(
+    parsed_filter: dict[str, Any],
+    raw_filter_text: str,
+    selected_dataset: str,
+    semantic_layer: dict[str, Any] | None,
+) -> dict[str, Any]:
+    expr = str(parsed_filter.get("expr", "") or "").strip()
+    if not expr:
+        return parsed_filter
+
+    dpd_match = re.match(r"^dpd\s*(\d+)$", expr, flags=re.IGNORECASE)
+    if not dpd_match:
+        return parsed_filter
+
+    if not selected_dataset or semantic_layer is None:
+        return parsed_filter
+
+    dataset = (semantic_layer.get("datasets", {}) or {}).get(selected_dataset, {}) or {}
+    has_overdue_days = any(
+        str(d.get("name", "") or "").strip() == "overdue_days"
+        for d in (dataset.get("dimensions", []) or [])
+    )
+    if not has_overdue_days:
+        return parsed_filter
+
+    return {
+        "field": f"{selected_dataset}.overdue_days",
+        "op": ">=",
+        "value": int(dpd_match.group(1)),
+        "source": parsed_filter.get("source", "step_b_filters"),
+    }
+
+
 def _build_step_b_filters(
     extracted_features: dict[str, Any],
     semantic_layer: dict[str, Any] | None,
@@ -255,7 +291,8 @@ def _build_step_b_filters(
         if not isinstance(f, str) or not f.strip():
             continue
         parsed = _parse_filter_expr(f)
-        normalized = _normalize_filter_field(parsed, alias_lookup, f)
+        expanded = _expand_filter_shortcuts(parsed, f, selected_dataset, semantic_layer)
+        normalized = _normalize_filter_field(expanded, alias_lookup, f)
         selected_filters.append(normalized)
     return selected_filters
 
@@ -462,6 +499,25 @@ def _canonicalize_dimensions_for_dataset(
     return _unique_keep_order(normalized)
 
 
+def _filter_dimensions_for_dataset(
+    selected_dimensions: list[str],
+    selected_dataset: str,
+    semantic_layer: dict[str, Any] | None,
+) -> list[str]:
+    if not selected_dimensions or not selected_dataset or semantic_layer is None:
+        return selected_dimensions
+
+    entities = semantic_layer.get("entities", {}) or {}
+    filtered: list[str] = []
+    for dim in selected_dimensions:
+        if not isinstance(dim, str) or "." not in dim:
+            continue
+        owner = dim.split(".", 1)[0]
+        if owner == selected_dataset or owner in entities:
+            filtered.append(dim)
+    return _unique_keep_order(filtered)
+
+
 def _sanitize_llm_filters(
     llm_filters: list[Any],
     semantic_layer: dict[str, Any] | None,
@@ -487,6 +543,13 @@ def _sanitize_llm_filters(
                 canonical_field = canonical
             elif "." in field.strip() and field.strip() in valid_canonical_fields:
                 canonical_field = field.strip()
+            elif "." in field.strip():
+                suffix = field.strip().split(".", 1)[1]
+                suffix_canonical = alias_lookup.get(_normalize_key(suffix))
+                if suffix_canonical:
+                    canonical_field = suffix_canonical
+                else:
+                    continue
             else:
                 continue
             copied["field"] = canonical_field
@@ -537,6 +600,7 @@ def merge_llm_selection_into_plan(
         selected_dimensions = dimension_candidates
     if not selected_dimensions:
         selected_dimensions = _infer_dimensions_from_features(extracted_features, primary_dataset, semantic_layer)
+    selected_dimensions = _filter_dimensions_for_dataset(selected_dimensions, primary_dataset, semantic_layer)
     selected_dimensions = _canonicalize_dimensions_for_dataset(selected_dimensions, primary_dataset, semantic_layer)
 
     selected_filters: list[dict[str, Any]] = []
