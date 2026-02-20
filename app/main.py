@@ -21,6 +21,85 @@ def _date_tag() -> str:
     return datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
 
 
+def _find_time_between_filter(enhanced_plan: dict) -> tuple[str, str] | None:
+    for item in enhanced_plan.get("selected_filters", []) or []:
+        if not isinstance(item, dict):
+            continue
+        op = str(item.get("op", "") or "").lower()
+        field = str(item.get("field", "") or "")
+        value = item.get("value")
+        if op != "between" or not field.endswith(".biz_date"):
+            continue
+        if not isinstance(value, list) or len(value) != 2:
+            continue
+        start = str(value[0] or "").strip()
+        end = str(value[1] or "").strip()
+        if start and end:
+            return start, end
+    return None
+
+
+def _build_dataset_time_bounds_sql(enhanced_plan: dict, semantic_layer: dict) -> str | None:
+    datasets = enhanced_plan.get("selected_dataset_candidates", []) or []
+    dataset_name = str(datasets[0]).strip() if datasets else ""
+    if not dataset_name:
+        return None
+
+    dataset = ((semantic_layer or {}).get("datasets", {}) or {}).get(dataset_name, {}) or {}
+    from_clause = str(dataset.get("from", "") or "").strip()
+    time_dimensions = dataset.get("time_dimensions", []) or []
+    if not from_clause or not time_dimensions:
+        return None
+
+    time_expr = str(time_dimensions[0].get("expr", "") or "").strip()
+    if not time_expr:
+        return None
+
+    return (
+        f"SELECT MIN({time_expr}) AS min_biz_date, MAX({time_expr}) AS max_biz_date "
+        f"FROM {from_clause}"
+    )
+
+
+def _build_empty_result_hint(
+    enhanced_plan: dict,
+    semantic_layer: dict,
+    executor: SQLQueryExecutor,
+) -> str:
+    between_filter = _find_time_between_filter(enhanced_plan)
+    if not between_filter:
+        return ""
+
+    bounds_sql = _build_dataset_time_bounds_sql(enhanced_plan, semantic_layer)
+    if not bounds_sql:
+        return ""
+
+    requested_start, requested_end = between_filter
+    try:
+        bounds_result = executor.run(bounds_sql, max_rows=1)
+    except Exception:
+        return ""
+
+    if not bounds_result.rows:
+        return ""
+
+    row = bounds_result.rows[0]
+    min_date = row.get("min_biz_date")
+    max_date = row.get("max_biz_date")
+    if min_date is None or max_date is None:
+        return ""
+
+    min_text = str(min_date)
+    max_text = str(max_date)
+    if requested_end < min_text or requested_start > max_text:
+        return (
+            "\n[診斷] 查詢時間範圍可能超出資料可用區間："
+            f"請求 {requested_start} ~ {requested_end}；"
+            f"資料約為 {min_text} ~ {max_text}。"
+        )
+    return ""
+
+
 def main():
     load_dotenv()
     settings = Settings.load()
@@ -133,6 +212,12 @@ def main():
                         f"Step H 圖表規劃：{chart_spec}\n"
                         f"Step I 圖表輸出：{chart_path}"
                     )
+                    if len(result.rows) == 0:
+                        chart_status += _build_empty_result_hint(
+                            enhanced_plan=enhanced_plan,
+                            semantic_layer=semantic_layer,
+                            executor=executor,
+                        )
                 except Exception as exc:
                     chart_status = f"Step G/H/I 略過或失敗：{exc}"
 
