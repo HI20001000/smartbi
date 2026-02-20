@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from dataclasses import dataclass
 from typing import Any
 
@@ -15,15 +16,18 @@ class ChartSpec:
 
 
 def _is_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+    return isinstance(value, (int, float, Decimal)) and not isinstance(value, bool)
 
 
 def build_chart_spec(query_result: QueryResult, title: str = "SQL Query Result") -> ChartSpec:
     if not query_result.rows:
         return ChartSpec(chart_type="table", x=None, y=[], title=f"{title} (empty)")
 
-    sample = query_result.rows[0]
-    numeric_cols = [c for c, v in sample.items() if _is_number(v)]
+    numeric_cols = [
+        c
+        for c in query_result.columns
+        if any(_is_number(row.get(c)) for row in query_result.rows)
+    ]
     non_numeric_cols = [c for c in query_result.columns if c not in numeric_cols]
 
     if not numeric_cols:
