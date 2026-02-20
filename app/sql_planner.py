@@ -244,6 +244,39 @@ def _normalize_filter_field(parsed_filter: dict[str, Any], alias_lookup: dict[st
     }
 
 
+def _expand_filter_shortcuts(
+    parsed_filter: dict[str, Any],
+    raw_filter_text: str,
+    selected_dataset: str,
+    semantic_layer: dict[str, Any] | None,
+) -> dict[str, Any]:
+    expr = str(parsed_filter.get("expr", "") or "").strip()
+    if not expr:
+        return parsed_filter
+
+    dpd_match = re.match(r"^dpd\s*(\d+)$", expr, flags=re.IGNORECASE)
+    if not dpd_match:
+        return parsed_filter
+
+    if not selected_dataset or semantic_layer is None:
+        return parsed_filter
+
+    dataset = (semantic_layer.get("datasets", {}) or {}).get(selected_dataset, {}) or {}
+    has_overdue_days = any(
+        str(d.get("name", "") or "").strip() == "overdue_days"
+        for d in (dataset.get("dimensions", []) or [])
+    )
+    if not has_overdue_days:
+        return parsed_filter
+
+    return {
+        "field": f"{selected_dataset}.overdue_days",
+        "op": ">=",
+        "value": int(dpd_match.group(1)),
+        "source": parsed_filter.get("source", "step_b_filters"),
+    }
+
+
 def _build_step_b_filters(
     extracted_features: dict[str, Any],
     semantic_layer: dict[str, Any] | None,
@@ -255,7 +288,8 @@ def _build_step_b_filters(
         if not isinstance(f, str) or not f.strip():
             continue
         parsed = _parse_filter_expr(f)
-        normalized = _normalize_filter_field(parsed, alias_lookup, f)
+        expanded = _expand_filter_shortcuts(parsed, f, selected_dataset, semantic_layer)
+        normalized = _normalize_filter_field(expanded, alias_lookup, f)
         selected_filters.append(normalized)
     return selected_filters
 
