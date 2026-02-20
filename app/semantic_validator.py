@@ -10,14 +10,28 @@ def _dataset_from_canonical_name(canonical_name: str) -> str | None:
     return dataset or None
 
 
-def _collect_selected_datasets(enhanced_plan: dict[str, Any]) -> list[str]:
+def _collect_selected_datasets(
+    enhanced_plan: dict[str, Any],
+    semantic_layer: dict[str, Any] | None = None,
+) -> list[str]:
     candidates = enhanced_plan.get("selected_dataset_candidates", []) or []
     selected: list[str] = [c for c in candidates if isinstance(c, str) and c]
+
+    datasets = ((semantic_layer or {}).get("datasets", {}) or {})
+    entities = ((semantic_layer or {}).get("entities", {}) or {})
 
     for key in ("selected_metrics", "selected_dimensions"):
         for canonical_name in enhanced_plan.get(key, []) or []:
             dataset = _dataset_from_canonical_name(canonical_name)
-            if dataset and dataset not in selected:
+            if not dataset:
+                continue
+            # only dataset prefixes should participate in multi-dataset checks;
+            # entity dimensions (e.g. branch.branch_name) are valid joined fields.
+            if entities and dataset in entities:
+                continue
+            if datasets and dataset not in datasets:
+                continue
+            if dataset not in selected:
                 selected.append(dataset)
     return selected
 
@@ -136,7 +150,7 @@ def validate_semantic_plan(
     if not selected_metrics and not selected_dimensions:
         _add_error("EMPTY_SELECTION", "尚未選到可用的指標/維度，請補充查詢條件。")
 
-    selected_datasets = _collect_selected_datasets(enhanced_plan)
+    selected_datasets = _collect_selected_datasets(enhanced_plan, semantic_layer)
     if len(selected_datasets) > 1 and semantic_layer is not None:
         if not _has_join_path(semantic_layer, selected_datasets):
             ds_list = ", ".join(selected_datasets)
