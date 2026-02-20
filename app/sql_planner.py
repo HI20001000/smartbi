@@ -31,6 +31,18 @@ def _canonical_candidates(matches: list[dict[str, Any]], object_type: str) -> li
     )
 
 
+def _dimension_candidates(matches: list[dict[str, Any]]) -> list[str]:
+    return _unique_keep_order(
+        [
+            m.get("canonical_name", "")
+            for m in matches
+            if m.get("object_type") in {"dimension", "field"}
+            and m.get("allowed") is not False
+            and m.get("canonical_name")
+        ]
+    )
+
+
 def _dataset_candidates(matches: list[dict[str, Any]]) -> list[str]:
     return _unique_keep_order([m.get("dataset", "") for m in matches if m.get("dataset")])
 
@@ -241,7 +253,7 @@ def build_semantic_plan(
     matches = token_hits.get("matches", []) or []
 
     selected_metrics = _canonical_candidates(matches, "metric")
-    selected_dimensions = _canonical_candidates(matches, "dimension")
+    selected_dimensions = _dimension_candidates(matches)
     dataset_candidates = _dataset_candidates(matches)
     primary_dataset = dataset_candidates[0] if dataset_candidates else ""
 
@@ -305,6 +317,33 @@ def _infer_dimensions_from_features(
     return inferred
 
 
+def _canonicalize_dimensions_for_dataset(
+    selected_dimensions: list[str],
+    selected_dataset: str,
+    semantic_layer: dict[str, Any] | None,
+) -> list[str]:
+    if not selected_dimensions or not selected_dataset or semantic_layer is None:
+        return selected_dimensions
+
+    dataset = (semantic_layer.get("datasets", {}) or {}).get(selected_dataset, {}) or {}
+    time_dimensions = dataset.get("time_dimensions", []) or []
+    if not time_dimensions:
+        return selected_dimensions
+
+    primary_time_name = str(time_dimensions[0].get("name", "") or "").strip()
+    if not primary_time_name:
+        return selected_dimensions
+    dataset_time_canonical = f"{selected_dataset}.{primary_time_name}"
+
+    normalized: list[str] = []
+    for dim in selected_dimensions:
+        if dim == "calendar.biz_date":
+            normalized.append(dataset_time_canonical)
+        else:
+            normalized.append(dim)
+    return _unique_keep_order(normalized)
+
+
 def _sanitize_llm_filters(
     llm_filters: list[Any],
     semantic_layer: dict[str, Any] | None,
@@ -346,7 +385,7 @@ def merge_llm_selection_into_plan(
     """Deterministically assemble semantic plan from Step C candidates + LLM selection."""
     matches = token_hits.get("matches", []) or []
     metric_candidates = _canonical_candidates(matches, "metric")
-    dimension_candidates = _canonical_candidates(matches, "dimension")
+    dimension_candidates = _dimension_candidates(matches)
     dataset_candidates = _dataset_candidates(matches)
 
     selected_metrics = _safe_selected_values(metric_candidates, llm_selection.get("selected_metrics", []) or [])
@@ -365,6 +404,7 @@ def merge_llm_selection_into_plan(
         selected_dimensions = dimension_candidates
     if not selected_dimensions:
         selected_dimensions = _infer_dimensions_from_features(extracted_features, primary_dataset, semantic_layer)
+    selected_dimensions = _canonicalize_dimensions_for_dataset(selected_dimensions, primary_dataset, semantic_layer)
 
     selected_filters: list[dict[str, Any]] = []
     llm_filters = llm_selection.get("selected_filters", []) or []

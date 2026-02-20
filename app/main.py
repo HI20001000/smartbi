@@ -1,5 +1,7 @@
+import argparse
 from datetime import datetime
 import json
+from pathlib import Path
 import time
 
 from dotenv import load_dotenv
@@ -24,6 +26,11 @@ def _date_tag() -> str:
 
 def _pretty(data: object) -> str:
     return json.dumps(data, ensure_ascii=False, indent=2)
+
+
+def _dark_log_block(text: str) -> str:
+    # ANSI dark style block (fallback to plain text if terminal does not support ANSI)
+    return f"\033[48;5;236m\033[97m{text}\033[0m"
 
 
 def _find_time_between_filter(enhanced_plan: dict) -> tuple[str, str] | None:
@@ -158,9 +165,103 @@ def _build_empty_result_hint(
     )
 
 
+def _split_sql_script(script_text: str) -> list[str]:
+    statements: list[str] = []
+    chunks = script_text.split(";")
+    for chunk in chunks:
+        lines = []
+        for line in chunk.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("--"):
+                continue
+            lines.append(line)
+        statement = "\n".join(lines).strip()
+        if statement:
+            statements.append(statement)
+    return statements
+
+
+def _run_sql_script_file(sql_file: str, settings: Settings) -> bool:
+    file_path = Path(sql_file)
+    if not file_path.exists() and file_path.name == "example_data.sql":
+        typo_fallback = file_path.with_name("exmaple_data.sql")
+        if typo_fallback.exists():
+            file_path = typo_fallback
+
+    if not file_path.exists():
+        print(f"[Batch SQL] 檔案不存在：{file_path}")
+        return False
+
+    missing_db_fields = [
+        name
+        for name, value in (("db_host", settings.db_host), ("db_user", settings.db_user), ("db_name", settings.db_name))
+        if not value
+    ]
+    if missing_db_fields:
+        print(f"[Batch SQL] 無法執行 SQL 檔案，缺少 DB 設定：{', '.join(missing_db_fields)}")
+        return False
+
+    try:
+        import pymysql
+    except Exception as exc:
+        print(f"[Batch SQL] 缺少 pymysql 依賴：{exc}")
+        return False
+
+    script_text = file_path.read_text(encoding="utf-8")
+    statements = _split_sql_script(script_text)
+    if not statements:
+        print(f"[Batch SQL] 檔案無可執行語句：{file_path}")
+        return True
+
+    print(f"[Batch SQL] 開始執行：{file_path}（共 {len(statements)} 條語句）")
+    try:
+        conn = pymysql.connect(
+            host=settings.db_host,
+            port=settings.db_port,
+            user=settings.db_user,
+            password=settings.db_password or "",
+            database=settings.db_name,
+            autocommit=True,
+        )
+    except Exception as exc:
+        print(f"[Batch SQL] 連線失敗：{exc}")
+        return False
+
+    try:
+        with conn.cursor() as cursor:
+            for idx, statement in enumerate(statements, start=1):
+                try:
+                    cursor.execute(statement)
+                    print(f"[Batch SQL] ({idx}/{len(statements)}) OK")
+                except Exception as exc:
+                    print(f"[Batch SQL] ({idx}/{len(statements)}) FAILED: {exc}")
+                    return False
+    finally:
+        conn.close()
+
+    print("[Batch SQL] 執行完成。")
+    return True
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="SmartBI Chat CLI")
+    parser.add_argument(
+        "--sql-file",
+        default=None,
+        help="以批次模式執行 SQL 檔案（例如 sql/example_data.sql）",
+    )
+    return parser.parse_args()
+
+
 def main():
+    args = _parse_args()
     load_dotenv()
     settings = Settings.load()
+
+    if args.sql_file:
+        _run_sql_script_file(args.sql_file, settings)
+        return
+
     session = LLMChatSession(settings)
     semantic_layer = load_semantic_layer()
     governance_limits = get_governance(semantic_layer)
@@ -242,6 +343,7 @@ def main():
                 if missing_db_fields
                 else "Step G/H/I 略過：未啟用 SQL 執行。"
             )
+            summary_status = "Step J 數據摘要：略過（尚無可用結果）"
             if generated_sql and not missing_db_fields:
                 try:
                     executor = SQLQueryExecutor(
@@ -309,10 +411,13 @@ def main():
                         f"Step H 圖表規劃：{chart_spec}\n"
                         f"Step I 圖表輸出：{chart_path}"
                     )
+                    summary_text = session.summarize_query_result_with_llm(user_input, result.rows, max_rows=20)
+                    summary_status = _dark_log_block(f"Step J 數據摘要：\n{summary_text}")
                     if retry_hint:
                         chart_status += retry_hint
                 except Exception as exc:
                     chart_status = f"Step G/H/I 略過或失敗：{exc}"
+                    summary_status = "Step J 數據摘要：略過（Step G/H/I 失敗）"
 
             metrics_payload = {
                 "validation_ok": validation.get("ok", False),
@@ -335,6 +440,7 @@ def main():
                 f"Step F SQL 生成結果：\n{sql_text}\n"
                 f"Observability Metrics：\n{_pretty(metrics_payload)}\n"
                 f"{chart_status}\n"
+                f"{summary_status}\n"
             )
             continue
 
