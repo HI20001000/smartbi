@@ -1036,6 +1036,83 @@ class SemanticPipelineTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertIn("NO_COMPILABLE_SELECT", result["error_codes"])
 
+    def test_merge_llm_selection_infers_dataset_from_entity_sensitive_dimensions(self):
+        token_hits = {
+            "matches": [
+                {"object_type": "sensitive_field", "canonical_name": "customer.full_name", "dataset": "", "allowed": True},
+                {"object_type": "sensitive_field", "canonical_name": "customer.id_no", "dataset": "", "allowed": True},
+            ]
+        }
+        llm_selection = {
+            "selected_metrics": [],
+            "selected_dimensions": [],
+            "selected_dataset_candidates": [],
+            "selected_filters": [],
+        }
+        features = {"filters": ["客戶=10001"], "time_start": "", "time_end": ""}
+        semantic_layer = {
+            "entities": {
+                "customer": {
+                    "table": "core_customer",
+                    "fields": [{"name": "customer_id", "expr": "core_customer.customer_id", "synonyms": ["客戶ID"]}],
+                    "sensitive_fields": [
+                        {"name": "full_name", "expr": "core_customer.full_name", "allowed": True, "synonyms": ["姓名"]},
+                        {"name": "id_no", "expr": "core_customer.id_no", "allowed": True, "synonyms": ["身份證號"]},
+                    ],
+                }
+            },
+            "datasets": {
+                "deposit_balance_daily": {
+                    "from": "fact_account_balance_daily as bal",
+                    "metrics": [{"name": "deposit_end_balance", "expr": "bal.end_balance", "type": "sum"}],
+                    "dimensions": [],
+                    "time_dimensions": [{"name": "biz_date", "expr": "bal.biz_date"}],
+                    "joins": [{"entity": "customer", "on": "bal.customer_id = core_customer.customer_id"}],
+                }
+            },
+        }
+
+        merged = merge_llm_selection_into_plan(llm_selection, token_hits, features, semantic_layer=semantic_layer)
+
+        self.assertEqual(merged["selected_dataset_candidates"], ["deposit_balance_daily"])
+        self.assertEqual(
+            merged["selected_filters"],
+            [{"field": "customer.customer_id", "op": "=", "value": 10001, "source": "step_b_filters"}],
+        )
+
+    def test_validator_allows_compilable_select_for_entity_sensitive_dimensions_with_inferred_dataset(self):
+        semantic_layer = {
+            "entities": {
+                "customer": {
+                    "table": "core_customer",
+                    "fields": [{"name": "customer_id", "expr": "core_customer.customer_id"}],
+                    "sensitive_fields": [
+                        {"name": "full_name", "expr": "core_customer.full_name", "allowed": True},
+                        {"name": "id_no", "expr": "core_customer.id_no", "allowed": True},
+                    ],
+                }
+            },
+            "datasets": {
+                "deposit_balance_daily": {
+                    "from": "fact_account_balance_daily as bal",
+                    "metrics": [{"name": "deposit_end_balance", "expr": "bal.end_balance", "type": "sum"}],
+                    "dimensions": [],
+                    "time_dimensions": [{"name": "biz_date", "expr": "bal.biz_date"}],
+                    "joins": [{"entity": "customer", "on": "bal.customer_id = core_customer.customer_id"}],
+                }
+            },
+        }
+        plan = {
+            "selected_metrics": [],
+            "selected_dimensions": ["customer.full_name", "customer.id_no"],
+            "selected_filters": [{"field": "customer.customer_id", "op": "=", "value": 10001}],
+            "selected_dataset_candidates": ["deposit_balance_daily"],
+        }
+
+        result = validate_semantic_plan(plan, {"blocked_matches": []}, {"require_time_filter": False}, semantic_layer=semantic_layer)
+
+        self.assertTrue(result["ok"])
+
 
 if __name__ == "__main__":
     unittest.main()
