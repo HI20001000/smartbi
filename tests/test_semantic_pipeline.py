@@ -162,6 +162,40 @@ class SemanticPipelineTests(unittest.TestCase):
         self.assertIn("s.biz_date BETWEEN '2024-01-01' AND '2024-01-31'", sql)
         self.assertIn("GROUP BY s.biz_date", sql)
 
+
+    def test_compiler_preserves_step_d2_time_between_values_without_rewrite(self):
+        semantic_layer = {
+            "entities": {
+                "branch": {
+                    "table": "dim_branch",
+                    "fields": [{"name": "region", "expr": "dim_branch.region"}],
+                }
+            },
+            "datasets": {
+                "deposit_balance_daily": {
+                    "from": "fact_account_balance_daily as bal",
+                    "time_dimensions": [{"name": "biz_date", "expr": "bal.biz_date"}],
+                    "metrics": [{"name": "deposit_end_balance", "expr": "bal.end_balance"}],
+                    "dimensions": [],
+                    "joins": [{"entity": "branch", "on": "bal.branch_id = dim_branch.branch_id"}],
+                }
+            },
+        }
+        plan = {
+            "selected_metrics": ["deposit_balance_daily.deposit_end_balance"],
+            "selected_dimensions": [],
+            "selected_filters": [
+                {"field": "branch.region", "op": "=", "value": "澳門半島"},
+                {"field": "deposit_balance_daily.biz_date", "op": "between", "value": ["2024-01-01", "2024-12-31"]},
+            ],
+            "selected_dataset_candidates": ["deposit_balance_daily"],
+        }
+
+        sql = compile_sql_from_semantic_plan(plan, semantic_layer)
+
+        self.assertIn("bal.biz_date BETWEEN '2024-01-01' AND '2024-12-31'", sql)
+        self.assertNotIn("2026-01-01", sql)
+
     def test_compiler_supports_yaml_boolean_true_key_for_join_on(self):
         semantic_layer = {
             "entities": {
