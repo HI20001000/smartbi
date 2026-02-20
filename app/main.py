@@ -1,5 +1,6 @@
 import argparse
 from datetime import datetime
+from decimal import Decimal
 import json
 from pathlib import Path
 import time
@@ -25,7 +26,12 @@ def _date_tag() -> str:
 
 
 def _pretty(data: object) -> str:
-    return json.dumps(data, ensure_ascii=False, indent=2)
+    def _json_fallback(value: object) -> object:
+        if isinstance(value, Decimal):
+            return float(value)
+        return str(value)
+
+    return json.dumps(data, ensure_ascii=False, indent=2, default=_json_fallback)
 
 
 def _dark_log_block(text: str) -> str:
