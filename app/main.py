@@ -369,7 +369,12 @@ def main():
                 else "Step G/H/I 略過：未啟用 SQL 執行。"
             )
             summary_status = "Step J 數據摘要：略過（尚無可用結果）"
-            if generated_sql and not missing_db_fields:
+            if not validation.get("ok"):
+                failure_message = "; ".join(validation.get("errors", []) or []) or "規則校驗失敗"
+                summary_text = session.summarize_failure_with_llm(user_input, failure_message)
+                summary_status = _dark_log_block(f"Step J 數據摘要（錯誤修飾）：\n{summary_text}")
+                chart_status = "Step G/H/I 略過：因 Step E 規則校驗失敗，停止後續步驟。"
+            elif generated_sql and not missing_db_fields:
                 try:
                     executor = SQLQueryExecutor(
                         host=settings.db_host,
@@ -383,47 +388,6 @@ def main():
                         generated_sql,
                         max_rows=governance_limits.get("max_rows", 1000),
                     )
-
-                    retry_hint = ""
-                    if len(result.rows) == 0:
-                        requested_range = _find_time_between_filter(enhanced_plan)
-                        data_bounds = _get_dataset_time_bounds(enhanced_plan, semantic_layer, executor)
-                        if requested_range and data_bounds:
-                            requested_start, requested_end = requested_range
-                            data_start, data_end = data_bounds
-                            adjusted_range = _compute_adjusted_time_range(
-                                requested_start,
-                                requested_end,
-                                data_start,
-                                data_end,
-                            )
-                            if adjusted_range:
-                                adjusted_start, adjusted_end = adjusted_range
-                                adjusted_plan = _replace_time_between_filter(
-                                    enhanced_plan,
-                                    adjusted_start,
-                                    adjusted_end,
-                                )
-                                if adjusted_plan and (adjusted_start, adjusted_end) != (requested_start, requested_end):
-                                    adjusted_sql = compile_sql_from_semantic_plan(
-                                        enhanced_plan=adjusted_plan,
-                                        semantic_layer=semantic_layer,
-                                    )
-                                    retry_result = executor.run(
-                                        adjusted_sql,
-                                        max_rows=governance_limits.get("max_rows", 1000),
-                                    )
-                                    if len(retry_result.rows) > 0:
-                                        result = retry_result
-                                        generated_sql = adjusted_sql
-                                        retry_hint = _build_empty_result_hint(
-                                            requested_start,
-                                            requested_end,
-                                            data_start,
-                                            data_end,
-                                            adjusted_start,
-                                            adjusted_end,
-                                        )
 
                     preferred_chart_type = _detect_preferred_chart_type(features)
                     chart_spec = build_chart_spec(
@@ -446,11 +410,11 @@ def main():
                         summary_status = _dark_log_block(f"Step J 數據摘要：\n{summary_text}")
                     except Exception as summary_exc:
                         summary_status = f"Step J 數據摘要：略過（摘要生成失敗：{summary_exc}）"
-                    if retry_hint:
-                        chart_status += retry_hint
                 except Exception as exc:
-                    chart_status = f"Step G/H/I 略過或失敗：{exc}"
-                    summary_status = "Step J 數據摘要：略過（Step G/H/I 失敗）"
+                    failure_message = str(exc) or "Step G/H/I 執行失敗"
+                    chart_status = f"Step G/H/I 略過或失敗：{failure_message}"
+                    summary_text = session.summarize_failure_with_llm(user_input, failure_message)
+                    summary_status = _dark_log_block(f"Step J 數據摘要（錯誤修飾）：\n{summary_text}")
 
             metrics_payload = {
                 "validation_ok": validation.get("ok", False),
