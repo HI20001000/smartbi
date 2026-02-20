@@ -1,0 +1,1 @@
+"""SmartBI application package."""
