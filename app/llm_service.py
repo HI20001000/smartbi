@@ -1,4 +1,5 @@
 import json
+from decimal import Decimal
 
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langchain_openai import ChatOpenAI
@@ -237,6 +238,12 @@ class LLMChatSession:
 
     def summarize_query_result_with_llm(self, user_input: str, rows: list[dict], max_rows: int = 20) -> str:
         sample_rows = rows[: max(1, int(max_rows))]
+
+        def _json_fallback(value: object) -> object:
+            if isinstance(value, Decimal):
+                return float(value)
+            return str(value)
+
         prompt = [
             SystemMessage(
                 content=(
@@ -249,7 +256,7 @@ class LLMChatSession:
             HumanMessage(
                 content=(
                     f"user_input={user_input}\n"
-                    f"rows_json={json.dumps(sample_rows, ensure_ascii=False)}"
+                    f"rows_json={json.dumps(sample_rows, ensure_ascii=False, default=_json_fallback)}"
                 )
             ),
         ]
