@@ -28,6 +28,11 @@ def _pretty(data: object) -> str:
     return json.dumps(data, ensure_ascii=False, indent=2)
 
 
+def _dark_log_block(text: str) -> str:
+    # ANSI dark style block (fallback to plain text if terminal does not support ANSI)
+    return f"\033[48;5;236m\033[97m{text}\033[0m"
+
+
 def _find_time_between_filter(enhanced_plan: dict) -> tuple[str, str] | None:
     for item in enhanced_plan.get("selected_filters", []) or []:
         if not isinstance(item, dict):
@@ -338,6 +343,7 @@ def main():
                 if missing_db_fields
                 else "Step G/H/I 略過：未啟用 SQL 執行。"
             )
+            summary_status = "Step J 數據摘要：略過（尚無可用結果）"
             if generated_sql and not missing_db_fields:
                 try:
                     executor = SQLQueryExecutor(
@@ -405,10 +411,13 @@ def main():
                         f"Step H 圖表規劃：{chart_spec}\n"
                         f"Step I 圖表輸出：{chart_path}"
                     )
+                    summary_text = session.summarize_query_result_with_llm(user_input, result.rows, max_rows=20)
+                    summary_status = _dark_log_block(f"Step J 數據摘要：\n{summary_text}")
                     if retry_hint:
                         chart_status += retry_hint
                 except Exception as exc:
                     chart_status = f"Step G/H/I 略過或失敗：{exc}"
+                    summary_status = "Step J 數據摘要：略過（Step G/H/I 失敗）"
 
             metrics_payload = {
                 "validation_ok": validation.get("ok", False),
@@ -431,6 +440,7 @@ def main():
                 f"Step F SQL 生成結果：\n{sql_text}\n"
                 f"Observability Metrics：\n{_pretty(metrics_payload)}\n"
                 f"{chart_status}\n"
+                f"{summary_status}\n"
             )
             continue
 
