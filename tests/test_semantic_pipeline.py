@@ -230,6 +230,34 @@ class SemanticPipelineTests(unittest.TestCase):
         self.assertIn("LEFT JOIN dim_branch ON bal.branch_id = dim_branch.branch_id", sql)
         self.assertIn("dim_branch.region = '澳門半島'", sql)
 
+    def test_compiler_uses_calendar_skeleton_for_deposit_daily_trend_and_coalesce(self):
+        semantic_layer = {
+            "entities": {
+                "calendar": {"table": "dim_calendar", "fields": [{"name": "biz_date", "expr": "dim_calendar.biz_date"}]},
+            },
+            "datasets": {
+                "deposit_balance_daily": {
+                    "from": "fact_account_balance_daily as bal",
+                    "time_dimensions": [{"name": "biz_date", "expr": "bal.biz_date"}],
+                    "metrics": [{"name": "deposit_end_balance", "expr": "bal.end_balance", "type": "sum"}],
+                    "dimensions": [{"name": "biz_date", "expr": "bal.biz_date"}],
+                    "joins": [{"entity": "calendar", "on": "bal.biz_date = dim_calendar.biz_date"}],
+                }
+            },
+        }
+        plan = {
+            "selected_metrics": ["deposit_balance_daily.deposit_end_balance"],
+            "selected_dimensions": ["deposit_balance_daily.biz_date"],
+            "selected_filters": [{"field": "deposit_balance_daily.biz_date", "op": "between", "value": ["2026-01-01", "2026-01-31"]}],
+            "selected_dataset_candidates": ["deposit_balance_daily"],
+        }
+
+        sql = compile_sql_from_semantic_plan(plan, semantic_layer)
+
+        self.assertIn("FROM dim_calendar", sql)
+        self.assertIn("LEFT JOIN fact_account_balance_daily as bal ON bal.biz_date = dim_calendar.biz_date", sql)
+        self.assertIn("COALESCE(SUM(bal.end_balance), 0) AS deposit_balance_daily_deposit_end_balance", sql)
+
 
     def test_merge_llm_selection_drops_invalid_llm_filter_fields(self):
         token_hits = {
