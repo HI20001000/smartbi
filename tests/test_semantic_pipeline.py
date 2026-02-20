@@ -127,6 +127,40 @@ class SemanticPipelineTests(unittest.TestCase):
             [{"field": "sales.biz_date", "op": "between", "value": ["2024-01-01", "2024-01-31"], "source": "step_b_time_bounds"}],
         )
 
+    def test_merge_llm_selection_normalizes_month_grain_time_bounds(self):
+        token_hits = {
+            "matches": [
+                {"object_type": "metric", "canonical_name": "credit_score_monthly.avg_credit_score", "dataset": "credit_score_monthly", "allowed": True},
+            ]
+        }
+        llm_selection = {
+            "selected_metrics": ["credit_score_monthly.avg_credit_score"],
+            "selected_dimensions": [],
+            "selected_dataset_candidates": ["credit_score_monthly"],
+            "selected_filters": [],
+        }
+        features = {"filters": [], "time_start": "2026-01-01", "time_end": "2026-01-31"}
+
+        semantic_layer = {
+            "entities": {},
+            "datasets": {
+                "credit_score_monthly": {
+                    "from": "fact_credit_score_monthly as cs",
+                    "metrics": [{"name": "avg_credit_score", "expr": "cs.score", "type": "avg"}],
+                    "dimensions": [],
+                    "time_dimensions": [{"name": "yyyy_mm", "expr": "cs.yyyy_mm", "grain": "month"}],
+                    "joins": [],
+                }
+            },
+        }
+
+        merged = merge_llm_selection_into_plan(llm_selection, token_hits, features, semantic_layer=semantic_layer)
+
+        self.assertEqual(
+            merged["selected_filters"],
+            [{"field": "credit_score_monthly.yyyy_mm", "op": "between", "value": ["2026-01", "2026-01"], "source": "step_b_time_bounds"}],
+        )
+
     def test_validator_returns_error_code_for_invalid_canonical(self):
         plan = {
             "selected_metrics": ["sales.ghost_metric"],
