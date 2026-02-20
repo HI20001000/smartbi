@@ -405,13 +405,16 @@ def main():
                         f"Step H 圖表規劃：{chart_spec}\n"
                         f"Step I 圖表輸出：{chart_path}"
                     )
-                    if len(result.rows) == 0:
-                        chart_status += "\n[提醒] 查詢結果為 0 筆，當前條件下沒有可用數據。"
+                    zero_rows_notice = "[提醒] 查詢結果為 0 筆，當前條件下沒有可用數據。" if len(result.rows) == 0 else ""
                     try:
                         summary_text = session.summarize_query_result_with_llm(user_input, result.rows, max_rows=20)
-                        summary_status = _dark_log_block(f"Step J 數據摘要：\n{summary_text}")
+                        summary_body = f"{zero_rows_notice}\n{summary_text}" if zero_rows_notice else summary_text
+                        summary_status = _dark_log_block(f"Step J 數據摘要：\n{summary_body}")
                     except Exception as summary_exc:
-                        summary_status = f"Step J 數據摘要：略過（摘要生成失敗：{summary_exc}）"
+                        if zero_rows_notice:
+                            summary_status = f"Step J 數據摘要：\n{zero_rows_notice}\n（摘要生成失敗：{summary_exc}）"
+                        else:
+                            summary_status = f"Step J 數據摘要：略過（摘要生成失敗：{summary_exc}）"
                 except Exception as exc:
                     failure_message = str(exc) or "Step G/H/I 執行失敗"
                     chart_status = f"Step G/H/I 略過或失敗：{failure_message}"
