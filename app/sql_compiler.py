@@ -161,6 +161,11 @@ def compile_sql_from_semantic_plan(
         alias = canonical.replace(".", "_")
         select_parts.append(f"{metric_expr} AS {alias}")
 
+    if use_calendar_skeleton and lookup.first_time_expr:
+        select_parts.append(
+            f"CASE WHEN COUNT({lookup.first_time_expr}) = 0 THEN 1 ELSE 0 END AS __imputed_zero_fill__"
+        )
+
     if not select_parts:
         raise ValueError("No valid dimensions/metrics found for SELECT clause.")
 
