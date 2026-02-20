@@ -313,6 +313,92 @@ class SemanticPipelineTests(unittest.TestCase):
         self.assertIn("lbal.overdue_days >= 30", sql)
         self.assertNotIn("WHERE DPD30", sql)
 
+    def test_merge_llm_selection_normalizes_customer_id_filter_alias_from_step_b(self):
+        token_hits = {
+            "matches": [
+                {"object_type": "dimension", "canonical_name": "credit_score_monthly.score_band", "dataset": "credit_score_monthly", "allowed": True},
+            ]
+        }
+        llm_selection = {
+            "selected_metrics": [],
+            "selected_dimensions": ["credit_score_monthly.score_band"],
+            "selected_dataset_candidates": ["credit_score_monthly"],
+            "selected_filters": [],
+        }
+        features = {"filters": ["客戶ID=10001"], "time_start": "", "time_end": "", "query_text": "查詢客戶ID為10001的姓名與身份證號"}
+
+        semantic_layer = {
+            "entities": {
+                "customer": {
+                    "table": "core_customer",
+                    "fields": [
+                        {"name": "customer_id", "expr": "core_customer.customer_id"},
+                    ],
+                }
+            },
+            "datasets": {
+                "credit_score_monthly": {
+                    "from": "fact_credit_score_monthly as cs",
+                    "dimensions": [{"name": "score_band", "expr": "cs.score_band"}],
+                    "metrics": [],
+                    "time_dimensions": [{"name": "yyyy_mm", "expr": "cs.yyyy_mm", "grain": "month"}],
+                    "joins": [{"entity": "customer", "on": "cs.customer_id = core_customer.customer_id"}],
+                }
+            },
+        }
+
+        merged = merge_llm_selection_into_plan(llm_selection, token_hits, features, semantic_layer=semantic_layer)
+
+        self.assertEqual(
+            merged["selected_filters"],
+            [{"field": "customer.customer_id", "op": "=", "value": 10001, "source": "step_b_filters"}],
+        )
+        sql = compile_sql_from_semantic_plan(merged, semantic_layer)
+        self.assertIn("core_customer.customer_id = 10001", sql)
+        self.assertNotIn("WHERE 客戶ID=10001", sql)
+
+    def test_merge_llm_selection_maps_dataset_prefixed_customer_id_filter_from_llm(self):
+        token_hits = {
+            "matches": [
+                {"object_type": "dimension", "canonical_name": "credit_score_monthly.score_band", "dataset": "credit_score_monthly", "allowed": True},
+            ]
+        }
+        llm_selection = {
+            "selected_metrics": [],
+            "selected_dimensions": ["credit_score_monthly.score_band"],
+            "selected_dataset_candidates": ["credit_score_monthly"],
+            "selected_filters": [
+                {"field": "credit_score_monthly.customer_id", "op": "=", "value": "10001"},
+            ],
+        }
+        features = {"filters": [], "time_start": "", "time_end": ""}
+
+        semantic_layer = {
+            "entities": {
+                "customer": {
+                    "table": "core_customer",
+                    "fields": [
+                        {"name": "customer_id", "expr": "core_customer.customer_id"},
+                    ],
+                }
+            },
+            "datasets": {
+                "credit_score_monthly": {
+                    "from": "fact_credit_score_monthly as cs",
+                    "dimensions": [{"name": "score_band", "expr": "cs.score_band"}],
+                    "metrics": [],
+                    "time_dimensions": [{"name": "yyyy_mm", "expr": "cs.yyyy_mm", "grain": "month"}],
+                    "joins": [{"entity": "customer", "on": "cs.customer_id = core_customer.customer_id"}],
+                }
+            },
+        }
+
+        merged = merge_llm_selection_into_plan(llm_selection, token_hits, features, semantic_layer=semantic_layer)
+
+        self.assertEqual(
+            merged["selected_filters"],
+            [{"field": "customer.customer_id", "op": "=", "value": "10001"}],
+        )
     def test_merge_llm_selection_uses_query_text_two_month_bounds_when_detected(self):
         token_hits = {
             "matches": [

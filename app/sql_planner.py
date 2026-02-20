@@ -182,6 +182,9 @@ def _build_field_alias_lookup(semantic_layer: dict[str, Any] | None, dataset_nam
             _add_alias(alias_lookup, name, canonical)
             for synonym in field.get("synonyms", []) or []:
                 _add_alias(alias_lookup, str(synonym), canonical)
+            if entity_name == "customer" and name == "customer_id":
+                for customer_id_alias in ("客戶ID", "客户ID", "客戶編號", "客户编号", "cust_id", "client_id"):
+                    _add_alias(alias_lookup, customer_id_alias, canonical)
 
     return alias_lookup
 
@@ -540,6 +543,13 @@ def _sanitize_llm_filters(
                 canonical_field = canonical
             elif "." in field.strip() and field.strip() in valid_canonical_fields:
                 canonical_field = field.strip()
+            elif "." in field.strip():
+                suffix = field.strip().split(".", 1)[1]
+                suffix_canonical = alias_lookup.get(_normalize_key(suffix))
+                if suffix_canonical:
+                    canonical_field = suffix_canonical
+                else:
+                    continue
             else:
                 continue
             copied["field"] = canonical_field
