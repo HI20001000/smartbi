@@ -116,6 +116,20 @@ def render_chart(query_result: QueryResult, chart_spec: ChartSpec, output_path: 
         ax.set_xlabel(x_label)
         ax.set_ylabel(_safe_label(y_col, has_cjk_font))
         ax.tick_params(axis="x", rotation=35)
+    elif chart_spec.chart_type == "pie" and chart_spec.x and chart_spec.y:
+        y_col = chart_spec.y[0]
+        labels = [_safe_label(str(row.get(chart_spec.x)), has_cjk_font) for row in query_result.rows]
+        values = [float(row.get(y_col) or 0) for row in query_result.rows]
+        ax.pie(values, labels=labels, autopct="%1.1f%%", startangle=90)
+        ax.axis("equal")
+    elif chart_spec.chart_type == "scatter" and chart_spec.x and chart_spec.y:
+        x_col = chart_spec.x
+        y_col = chart_spec.y[0]
+        x_data = [float(row.get(x_col) or 0) for row in query_result.rows]
+        y_data = [float(row.get(y_col) or 0) for row in query_result.rows]
+        ax.scatter(x_data, y_data, alpha=0.8)
+        ax.set_xlabel(_safe_label(x_col, has_cjk_font))
+        ax.set_ylabel(_safe_label(y_col, has_cjk_font))
     else:
         ax.axis("off")
         preview = query_result.rows[:10]

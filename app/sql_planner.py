@@ -21,6 +21,13 @@ def _normalize_key(value: str) -> str:
     return str(value or "").strip().lower()
 
 
+def _normalize_phrase(value: str) -> str:
+    text = _normalize_key(value).replace(" ", "")
+    for token in ("總額", "總和", "合計", "總計"):
+        text = text.replace(token, "")
+    return text
+
+
 def _canonical_candidates(matches: list[dict[str, Any]], object_type: str) -> list[str]:
     return _unique_keep_order(
         [
@@ -158,6 +165,8 @@ def _build_field_alias_lookup(semantic_layer: dict[str, Any] | None, dataset_nam
         for j in dataset.get("joins", []) or []
         if isinstance(j, dict) and str(j.get("entity", "") or "").strip()
     ]
+    if not dataset_name:
+        join_entities = list(entities.keys())
     for entity_name in join_entities:
         entity = entities.get(entity_name, {}) or {}
         for field in entity.get("fields", []) or []:
@@ -171,6 +180,42 @@ def _build_field_alias_lookup(semantic_layer: dict[str, Any] | None, dataset_nam
                 _add_alias(alias_lookup, str(synonym), canonical)
 
     return alias_lookup
+
+
+def _infer_metrics_from_features(
+    extracted_features: dict[str, Any],
+    semantic_layer: dict[str, Any] | None,
+) -> list[str]:
+    if semantic_layer is None:
+        return []
+
+    asked_metrics = [m for m in (extracted_features.get("metrics", []) or []) if isinstance(m, str) and m.strip()]
+    if not asked_metrics:
+        return []
+
+    normalized_asks = [_normalize_phrase(m) for m in asked_metrics if _normalize_phrase(m)]
+    if not normalized_asks:
+        return []
+
+    inferred: list[str] = []
+    datasets = semantic_layer.get("datasets", {}) or {}
+    for dataset_name, dataset in datasets.items():
+        for metric in dataset.get("metrics", []) or []:
+            metric_name = str(metric.get("name", "") or "").strip()
+            if not metric_name:
+                continue
+            canonical = f"{dataset_name}.{metric_name}"
+            aliases = [metric_name]
+            aliases.extend(str(s) for s in (metric.get("synonyms", []) or []) if str(s).strip())
+            normalized_aliases = [_normalize_phrase(a) for a in aliases if _normalize_phrase(a)]
+            if not normalized_aliases:
+                continue
+            for ask in normalized_asks:
+                if any((ask in alias) or (alias in ask) for alias in normalized_aliases):
+                    inferred.append(canonical)
+                    break
+
+    return _unique_keep_order(inferred)
 
 
 def _normalize_filter_field(parsed_filter: dict[str, Any], alias_lookup: dict[str, str], raw_filter_text: str) -> dict[str, Any]:
@@ -395,8 +440,12 @@ def merge_llm_selection_into_plan(
     # fallback: if LLM did not select, use deterministic candidate order from Step C
     if not selected_metrics:
         selected_metrics = metric_candidates
+    if not selected_metrics:
+        selected_metrics = _infer_metrics_from_features(extracted_features, semantic_layer)
     if not selected_datasets:
         selected_datasets = dataset_candidates
+    if not selected_datasets and selected_metrics:
+        selected_datasets = _unique_keep_order([m.split(".", 1)[0] for m in selected_metrics if "." in m])
 
     primary_dataset = selected_datasets[0] if selected_datasets else ""
 
