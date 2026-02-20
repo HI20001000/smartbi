@@ -266,3 +266,22 @@ class LLMChatSession:
             return getattr(resp, "content", str(resp)).strip()
         except Exception as exc:
             return f"（摘要生成失敗：{exc}）"
+
+    def summarize_failure_with_llm(self, user_input: str, failure_message: str) -> str:
+        prompt = [
+            SystemMessage(
+                content=(
+                    "你是 SmartBI 錯誤說明助手。"
+                    "請把系統錯誤或校驗失敗訊息整理成 2~4 句繁體中文，"
+                    "語氣專業、可執行，包含可能原因與下一步建議，"
+                    "不要杜撰未提供的系統狀態。"
+                )
+            ),
+            HumanMessage(content=f"user_input={user_input}\nerror={failure_message}"),
+        ]
+
+        try:
+            resp = self.client.invoke(prompt)
+            return getattr(resp, "content", str(resp)).strip()
+        except Exception:
+            return f"查詢流程發生問題：{failure_message}。請先修正上述錯誤後重試。"
