@@ -56,7 +56,11 @@ def _build_semantic_lookup(dataset_name: str, semantic_layer: dict[str, Any]) ->
     join_clauses: list[str] = []
     for join in dataset.get("joins", []) or []:
         entity_name = join.get("entity")
-        on_clause = str(join.get("on", "") or "").strip()
+        on_raw = join.get("on")
+        # YAML 1.1 may parse key `on` as boolean True when unquoted.
+        if on_raw in (None, "") and True in join:
+            on_raw = join.get(True)
+        on_clause = str(on_raw or "").strip()
         if not entity_name or not on_clause:
             continue
         entity = entities.get(entity_name, {}) or {}
