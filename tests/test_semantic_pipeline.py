@@ -142,6 +142,21 @@ class SemanticPipelineTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertIn("INVALID_CANONICAL_REF", result["error_codes"])
 
+    def test_validator_allows_entity_dimension_with_dataset_metric(self):
+        plan = {
+            "selected_metrics": ["sales.revenue"],
+            "selected_dimensions": ["branch.region"],
+            "selected_filters": [{"field": "sales.biz_date", "op": "between", "value": ["2024-01-01", "2024-01-31"]}],
+            "selected_dataset_candidates": ["sales"],
+        }
+        token_hits = {"blocked_matches": []}
+        governance = {"require_time_filter": True}
+
+        result = validate_semantic_plan(plan, token_hits, governance, semantic_layer=SEMANTIC_LAYER)
+
+        self.assertTrue(result["ok"])
+        self.assertNotIn("MULTI_DATASET_NO_JOIN_PATH", result["error_codes"])
+
     def test_compiler_builds_sql_deterministically_from_canonical_filter_field(self):
         plan = {
             "selected_metrics": ["sales.revenue"],
