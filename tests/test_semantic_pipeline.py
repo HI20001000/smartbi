@@ -359,6 +359,53 @@ class SemanticPipelineTests(unittest.TestCase):
 
         self.assertIn("deposit_balance_daily.biz_date", merged["selected_dimensions"])
 
+    def test_merge_llm_selection_infers_metric_from_feature_text_when_step_c_has_no_metric(self):
+        token_hits = {
+            "matches": [
+                {"object_type": "field", "canonical_name": "branch.region", "dataset": "", "allowed": True},
+            ]
+        }
+        llm_selection = {
+            "selected_metrics": [],
+            "selected_dimensions": [],
+            "selected_dataset_candidates": [],
+            "selected_filters": [],
+        }
+        features = {
+            "metrics": ["存款餘額總額"],
+            "dimensions": ["地區"],
+            "filters": ["地區 in(澳門半島,氹仔,路氹城,路環)"],
+            "time_start": "2026-01-01",
+            "time_end": "2026-01-31",
+        }
+
+        semantic_layer = {
+            "entities": {
+                "branch": {
+                    "table": "dim_branch",
+                    "fields": [{"name": "region", "expr": "dim_branch.region", "synonyms": ["地區"]}],
+                }
+            },
+            "datasets": {
+                "deposit_balance_daily": {
+                    "from": "fact_account_balance_daily as bal",
+                    "metrics": [{"name": "deposit_end_balance", "expr": "bal.end_balance", "synonyms": ["存款餘額"]}],
+                    "dimensions": [],
+                    "time_dimensions": [{"name": "biz_date", "expr": "bal.biz_date"}],
+                    "joins": [{"entity": "branch", "on": "bal.branch_id = dim_branch.branch_id"}],
+                }
+            },
+        }
+
+        merged = merge_llm_selection_into_plan(llm_selection, token_hits, features, semantic_layer=semantic_layer)
+
+        self.assertEqual(merged["selected_metrics"], ["deposit_balance_daily.deposit_end_balance"])
+        self.assertEqual(merged["selected_dataset_candidates"], ["deposit_balance_daily"])
+        self.assertIn(
+            {"field": "branch.region", "op": "in", "value": ["澳門半島", "氹仔", "路氹城", "路環"], "source": "step_b_filters"},
+            merged["selected_filters"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
