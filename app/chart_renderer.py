@@ -27,6 +27,18 @@ def render_chart(query_result: QueryResult, chart_spec: ChartSpec, output_path: 
         y_col = chart_spec.y[0]
         y_data = [row.get(y_col) for row in query_result.rows]
         ax.plot(x_data, y_data, marker="o")
+
+        # overlay a simple moving-average trend line when data points are enough
+        numeric_y = [float(v) for v in y_data if isinstance(v, (int, float))]
+        if len(numeric_y) >= 3 and len(numeric_y) == len(y_data):
+            window = 3
+            trend: list[float] = []
+            for idx in range(len(numeric_y)):
+                left = max(0, idx - window + 1)
+                chunk = numeric_y[left : idx + 1]
+                trend.append(sum(chunk) / len(chunk))
+            ax.plot(x_data, trend, linestyle="--", linewidth=2, alpha=0.8)
+
         ax.set_xlabel(chart_spec.x)
         ax.set_ylabel(y_col)
         ax.tick_params(axis="x", rotation=35)
