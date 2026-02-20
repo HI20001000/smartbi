@@ -142,10 +142,12 @@ semantic_layer:
           expr: core_customer.full_name
           classification: PII
           allowed: false
+          synonyms: [姓名, 客戶姓名, 名字]
         - name: id_no
           expr: core_customer.id_no
           classification: PII
           allowed: false
+          synonyms: [身份證號, 身分證號, 身份證字號, 證件號]
         - name: phone
           expr: core_customer.phone
           classification: PII
@@ -188,6 +190,7 @@ semantic_layer:
           expr: core_account.account_no
           classification: SENSITIVE_IDENTIFIER
           allowed: false
+          synonyms: [帳號, 賬號, 帳戶號, 賬戶號]
 
     loan:
       table: core_loan
@@ -222,6 +225,7 @@ semantic_layer:
           expr: core_loan.loan_no
           classification: SENSITIVE_IDENTIFIER
           allowed: false
+          synonyms: [貸款編號, 借據號]
 
   # ----------------------------
   # 2) Datasets (facts + join graph + metrics)

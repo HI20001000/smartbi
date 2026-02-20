@@ -418,7 +418,7 @@ class SemanticPipelineTests(unittest.TestCase):
         result = validate_semantic_plan(plan, token_hits, {"require_time_filter": True}, semantic_layer=SEMANTIC_LAYER)
 
         self.assertFalse(result["ok"])
-        self.assertIn("BLOCKED_MATCH", result["error_codes"])
+        self.assertEqual(result["error_codes"], ["BLOCKED_MATCH"])
 
     def test_validator_requires_time_filter_when_governance_enabled(self):
         plan = {
@@ -432,6 +432,20 @@ class SemanticPipelineTests(unittest.TestCase):
 
         self.assertFalse(result["ok"])
         self.assertIn("TIME_FILTER_REQUIRED", result["error_codes"])
+
+    def test_validator_empty_selection_does_not_emit_time_filter_required(self):
+        plan = {
+            "selected_metrics": [],
+            "selected_dimensions": [],
+            "selected_filters": [],
+            "selected_dataset_candidates": [],
+        }
+
+        result = validate_semantic_plan(plan, {"blocked_matches": []}, {"require_time_filter": True}, semantic_layer=SEMANTIC_LAYER)
+
+        self.assertFalse(result["ok"])
+        self.assertIn("EMPTY_SELECTION", result["error_codes"])
+        self.assertNotIn("TIME_FILTER_REQUIRED", result["error_codes"])
 
     def test_validator_rejects_incomplete_time_axis(self):
         plan = {
