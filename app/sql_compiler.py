@@ -7,6 +7,7 @@ from typing import Any
 @dataclass(frozen=True)
 class SemanticLookup:
     metric_expr_by_name: dict[str, str]
+    metric_type_by_name: dict[str, str]
     dimension_expr_by_name: dict[str, str]
     from_clause: str
     join_clauses: list[str]
@@ -27,11 +28,14 @@ def _build_semantic_lookup(dataset_name: str, semantic_layer: dict[str, Any]) ->
     dataset = datasets.get(dataset_name, {}) or {}
 
     metric_expr_by_name: dict[str, str] = {}
+    metric_type_by_name: dict[str, str] = {}
     for metric in dataset.get("metrics", []) or []:
         canonical = f"{dataset_name}.{metric.get('name', '')}"
         expr = str(metric.get("expr", "") or "").strip()
+        metric_type = str(metric.get("type", "") or "").strip().lower()
         if canonical and expr:
             metric_expr_by_name[canonical] = expr
+            metric_type_by_name[canonical] = metric_type
 
     dimension_expr_by_name: dict[str, str] = {}
     for dimension in dataset.get("dimensions", []) or []:
@@ -71,10 +75,24 @@ def _build_semantic_lookup(dataset_name: str, semantic_layer: dict[str, Any]) ->
 
     return SemanticLookup(
         metric_expr_by_name=metric_expr_by_name,
+        metric_type_by_name=metric_type_by_name,
         dimension_expr_by_name=dimension_expr_by_name,
         from_clause=str(dataset.get("from", "") or "").strip(),
         join_clauses=join_clauses,
     )
+
+
+def _normalize_metric_expr(expr: str, metric_type: str) -> str:
+    metric_type = (metric_type or "").strip().lower()
+    if metric_type == "sum":
+        return f"SUM({expr})"
+    if metric_type == "avg":
+        return f"AVG({expr})"
+    if metric_type == "count_distinct":
+        return f"COUNT(DISTINCT {expr})"
+    if metric_type == "count":
+        return f"COUNT({expr})"
+    return expr
 
 
 def compile_sql_from_semantic_plan(
@@ -105,8 +123,10 @@ def compile_sql_from_semantic_plan(
         expr = lookup.metric_expr_by_name.get(canonical)
         if not expr:
             continue
+        metric_type = lookup.metric_type_by_name.get(canonical, "")
+        metric_expr = _normalize_metric_expr(expr, metric_type)
         alias = canonical.replace(".", "_")
-        select_parts.append(f"{expr} AS {alias}")
+        select_parts.append(f"{metric_expr} AS {alias}")
 
     if not select_parts:
         raise ValueError("No valid dimensions/metrics found for SELECT clause.")
