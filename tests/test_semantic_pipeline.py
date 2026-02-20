@@ -153,7 +153,7 @@ class SemanticPipelineTests(unittest.TestCase):
             "selected_dataset_candidates": ["sales"],
         }
 
-        sql = compile_sql_from_semantic_plan(plan, SEMANTIC_LAYER, limit=100)
+        sql = compile_sql_from_semantic_plan(plan, SEMANTIC_LAYER)
 
         self.assertIn("SELECT s.biz_date AS sales_biz_date, SUM(s.revenue) AS sales_revenue", sql)
         self.assertIn("FROM fact_sales as s", sql)
@@ -161,7 +161,41 @@ class SemanticPipelineTests(unittest.TestCase):
         self.assertIn("dim_branch.region = '澳門半島'", sql)
         self.assertIn("s.biz_date BETWEEN '2024-01-01' AND '2024-01-31'", sql)
         self.assertIn("GROUP BY s.biz_date", sql)
-        self.assertTrue(sql.strip().endswith("LIMIT 100"))
+
+    def test_compiler_supports_yaml_boolean_true_key_for_join_on(self):
+        semantic_layer = {
+            "entities": {
+                "branch": {
+                    "table": "dim_branch",
+                    "fields": [
+                        {"name": "region", "expr": "dim_branch.region"},
+                    ],
+                }
+            },
+            "datasets": {
+                "deposit_balance_daily": {
+                    "from": "fact_account_balance_daily as bal",
+                    "metrics": [
+                        {"name": "deposit_end_balance", "expr": "bal.end_balance"},
+                    ],
+                    "joins": [
+                        {"entity": "branch", True: "bal.branch_id = dim_branch.branch_id"},
+                    ],
+                }
+            },
+        }
+        plan = {
+            "selected_metrics": ["deposit_balance_daily.deposit_end_balance"],
+            "selected_dimensions": [],
+            "selected_filters": [{"field": "branch.region", "op": "=", "value": "澳門半島"}],
+            "selected_dataset_candidates": ["deposit_balance_daily"],
+        }
+
+        sql = compile_sql_from_semantic_plan(plan, semantic_layer)
+
+        self.assertIn("LEFT JOIN dim_branch ON bal.branch_id = dim_branch.branch_id", sql)
+        self.assertIn("dim_branch.region = '澳門半島'", sql)
+
 
 
 if __name__ == "__main__":
