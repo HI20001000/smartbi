@@ -161,7 +161,6 @@ class SemanticPipelineTests(unittest.TestCase):
         self.assertIn("dim_branch.region = '澳門半島'", sql)
         self.assertIn("s.biz_date BETWEEN '2024-01-01' AND '2024-01-31'", sql)
         self.assertIn("GROUP BY s.biz_date", sql)
-        self.assertFalse(sql.strip().lower().endswith("limit 100"))
 
 
 if __name__ == "__main__":

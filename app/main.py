@@ -95,7 +95,6 @@ def main():
                 generated_sql = compile_sql_from_semantic_plan(
                     enhanced_plan=enhanced_plan,
                     semantic_layer=semantic_layer,
-                    limit=None,
                 )
             compile_ms = round((time.perf_counter() - compile_start) * 1000, 2)
 
