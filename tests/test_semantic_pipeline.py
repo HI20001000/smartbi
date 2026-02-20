@@ -161,6 +161,50 @@ class SemanticPipelineTests(unittest.TestCase):
 
         self.assertIn({"field": "credit_score_monthly.score_band", "op": "is not null"}, merged["selected_filters"])
 
+    def test_merge_llm_selection_prunes_step_b_month_expr_filters_and_normalizes_unary_op(self):
+        token_hits = {
+            "matches": [
+                {"object_type": "dimension", "canonical_name": "credit_score_monthly.score_band", "dataset": "credit_score_monthly", "allowed": True},
+            ]
+        }
+        llm_selection = {
+            "selected_metrics": [],
+            "selected_dimensions": ["credit_score_monthly.score_band"],
+            "selected_dataset_candidates": ["credit_score_monthly"],
+            "selected_filters": [
+                {"field": "credit_score_monthly.score_band", "op": "is_not_null", "value": None},
+            ],
+        }
+        features = {
+            "filters": ["月份=2025-12", "月份=2026-01"],
+            "time_start": "2025-12-01",
+            "time_end": "2026-01-31",
+            "query_text": "比較 2025-12 與 2026-01 信用分 band 分布",
+        }
+        semantic_layer = {
+            "entities": {
+                "calendar": {"table": "dim_calendar", "fields": [{"name": "month", "expr": "dim_calendar.month", "synonyms": ["月份"]}]}
+            },
+            "datasets": {
+                "credit_score_monthly": {
+                    "from": "fact_credit_score_monthly as cs",
+                    "metrics": [{"name": "avg_credit_score", "expr": "cs.score", "type": "avg", "synonyms": ["信用分"]}],
+                    "dimensions": [{"name": "score_band", "expr": "cs.score_band", "synonyms": ["band"]}],
+                    "time_dimensions": [{"name": "yyyy_mm", "expr": "cs.yyyy_mm", "grain": "month"}],
+                    "joins": [],
+                }
+            },
+        }
+
+        merged = merge_llm_selection_into_plan(llm_selection, token_hits, features, semantic_layer=semantic_layer)
+
+        self.assertIn({"field": "credit_score_monthly.score_band", "op": "is not null"}, merged["selected_filters"])
+        self.assertIn(
+            {"field": "credit_score_monthly.yyyy_mm", "op": "between", "value": ["2025-12", "2026-01"], "source": "query_text_month_bounds"},
+            merged["selected_filters"],
+        )
+        self.assertFalse(any(isinstance(f, dict) and "expr" in f for f in merged["selected_filters"]))
+
     def test_merge_llm_selection_uses_query_text_two_month_bounds_when_detected(self):
         token_hits = {
             "matches": [

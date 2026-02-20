@@ -159,6 +159,10 @@ def _build_field_alias_lookup(semantic_layer: dict[str, Any] | None, dataset_nam
         _add_alias(alias_lookup, name, canonical)
         for synonym in time_dimension.get("synonyms", []) or []:
             _add_alias(alias_lookup, str(synonym), canonical)
+        grain = str(time_dimension.get("grain", "") or "").strip().lower()
+        if grain == "month":
+            for month_alias in ("月份", "month", "month_id", "年月", "月度"):
+                _add_alias(alias_lookup, month_alias, canonical)
 
     join_entities = [
         str(j.get("entity", "") or "").strip()
@@ -326,6 +330,25 @@ def _build_time_filter_from_bounds(
     ]
 
 
+def _prune_conflicting_month_filters(selected_filters: list[dict[str, Any]], month_field: str) -> list[dict[str, Any]]:
+    pruned: list[dict[str, Any]] = []
+    for f in selected_filters:
+        if not isinstance(f, dict):
+            continue
+        source = str(f.get("source", "") or "")
+        field = str(f.get("field", "") or "")
+        op = str(f.get("op", "") or "").strip().lower()
+        expr = str(f.get("expr", "") or "")
+        if source == "step_b_time_bounds":
+            continue
+        if field == month_field and op in {"=", "between", "in"} and source == "step_b_filters":
+            continue
+        if source == "step_b_filters" and "月份" in expr:
+            continue
+        pruned.append(f)
+    return pruned
+
+
 def build_semantic_plan(
     extracted_features: dict[str, Any],
     token_hits: dict[str, Any],
@@ -351,8 +374,8 @@ def build_semantic_plan(
     grain = _resolve_time_dimension_grain(primary_dataset, semantic_layer)
     month_tokens = _extract_month_tokens(extracted_features.get("query_text", ""))
     if grain == "month" and len(month_tokens) >= 2:
-        selected_filters = [f for f in selected_filters if not (isinstance(f, dict) and f.get("source") == "step_b_time_bounds")]
         month_field = _resolve_time_filter_field(primary_dataset, semantic_layer)
+        selected_filters = _prune_conflicting_month_filters(selected_filters, month_field)
         selected_filters.append(
             {
                 "field": month_field,
@@ -468,7 +491,7 @@ def _sanitize_llm_filters(
                 continue
             copied["field"] = canonical_field
 
-        op = str(copied.get("op", "") or "").strip().lower()
+        op = str(copied.get("op", "") or "").strip().lower().replace("_", " ")
         if op:
             if op in allowed_unary_ops:
                 if not canonical_field:
@@ -536,8 +559,8 @@ def merge_llm_selection_into_plan(
     grain = _resolve_time_dimension_grain(primary_dataset, semantic_layer)
     month_tokens = _extract_month_tokens(extracted_features.get("query_text", ""))
     if grain == "month" and len(month_tokens) >= 2:
-        selected_filters = [f for f in selected_filters if not (isinstance(f, dict) and f.get("source") == "step_b_time_bounds")]
         month_field = _resolve_time_filter_field(primary_dataset, semantic_layer)
+        selected_filters = _prune_conflicting_month_filters(selected_filters, month_field)
         selected_filters.append(
             {
                 "field": month_field,
