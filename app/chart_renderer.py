@@ -1,9 +1,53 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 
 from app.chart_planner import ChartSpec, ROW_INDEX_X_KEY
 from app.query_executor import QueryResult
+
+
+_CJK_RE = re.compile(r"[\u3400-\u9fff]")
+
+
+def _contains_cjk(text: str) -> bool:
+    return bool(_CJK_RE.search(text or ""))
+
+
+def _configure_matplotlib_cjk_font() -> bool:
+    try:
+        from matplotlib import font_manager as fm
+        import matplotlib
+    except Exception:
+        return False
+
+    preferred_fonts = [
+        "Microsoft JhengHei",
+        "Microsoft YaHei",
+        "PMingLiU",
+        "SimSun",
+        "PingFang TC",
+        "Noto Sans CJK TC",
+        "Noto Sans CJK SC",
+        "SimHei",
+        "WenQuanYi Zen Hei",
+        "Arial Unicode MS",
+    ]
+
+    available = {f.name for f in fm.fontManager.ttflist}
+    for name in preferred_fonts:
+        if name in available:
+            matplotlib.rcParams["font.sans-serif"] = [name, "DejaVu Sans"]
+            matplotlib.rcParams["axes.unicode_minus"] = False
+            return True
+    return False
+
+
+def _safe_label(text: str, has_cjk_font: bool) -> str:
+    raw = str(text or "")
+    if _contains_cjk(raw) and not has_cjk_font:
+        return "cjk_label"
+    return raw
 
 
 def render_chart(query_result: QueryResult, chart_spec: ChartSpec, output_path: str) -> str:
@@ -19,8 +63,10 @@ def render_chart(query_result: QueryResult, chart_spec: ChartSpec, output_path: 
     except Exception as exc:  # pragma: no cover - environment dependent
         raise RuntimeError("matplotlib is required for chart rendering.") from exc
 
+    has_cjk_font = _configure_matplotlib_cjk_font()
+
     fig, ax = plt.subplots(figsize=(9, 5))
-    ax.set_title(chart_spec.title)
+    ax.set_title(_safe_label(chart_spec.title, has_cjk_font))
 
     if chart_spec.chart_type == "line" and chart_spec.x and chart_spec.y:
         x_data = [row.get(chart_spec.x) for row in query_result.rows]
@@ -40,7 +86,8 @@ def render_chart(query_result: QueryResult, chart_spec: ChartSpec, output_path: 
                     imputed_y.append(row.get(y_col))
             if imputed_x:
                 ax.scatter(imputed_x, imputed_y, color="red", marker="x", s=55)
-                ax.annotate("缺值補0", (imputed_x[-1], imputed_y[-1]), textcoords="offset points", xytext=(8, 8), fontsize=9)
+                annotation_text = "缺值補0" if has_cjk_font else "imputed_zero_fill"
+                ax.annotate(annotation_text, (imputed_x[-1], imputed_y[-1]), textcoords="offset points", xytext=(8, 8), fontsize=9)
 
         # overlay a simple moving-average trend line when data points are enough
         numeric_y = [float(v) for v in y_data if isinstance(v, (int, float))]
@@ -53,8 +100,8 @@ def render_chart(query_result: QueryResult, chart_spec: ChartSpec, output_path: 
                 trend.append(sum(chunk) / len(chunk))
             ax.plot(x_data, trend, linestyle="--", linewidth=2, alpha=0.8)
 
-        ax.set_xlabel(chart_spec.x)
-        ax.set_ylabel(y_col)
+        ax.set_xlabel(_safe_label(chart_spec.x, has_cjk_font))
+        ax.set_ylabel(_safe_label(y_col, has_cjk_font))
         ax.tick_params(axis="x", rotation=35)
     elif chart_spec.chart_type == "bar" and chart_spec.x and chart_spec.y:
         y_col = chart_spec.y[0]
@@ -63,11 +110,11 @@ def render_chart(query_result: QueryResult, chart_spec: ChartSpec, output_path: 
             x_data = [str(i + 1) for i, _ in enumerate(query_result.rows)]
             x_label = "row_index"
         else:
-            x_data = [str(row.get(chart_spec.x)) for row in query_result.rows]
-            x_label = chart_spec.x
+            x_data = [_safe_label(str(row.get(chart_spec.x)), has_cjk_font) for row in query_result.rows]
+            x_label = _safe_label(chart_spec.x, has_cjk_font)
         ax.bar(x_data, y_data)
         ax.set_xlabel(x_label)
-        ax.set_ylabel(y_col)
+        ax.set_ylabel(_safe_label(y_col, has_cjk_font))
         ax.tick_params(axis="x", rotation=35)
     else:
         ax.axis("off")
