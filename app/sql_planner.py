@@ -281,6 +281,38 @@ def build_semantic_plan(
     }
 
 
+def _sanitize_llm_filters(
+    llm_filters: list[Any],
+    semantic_layer: dict[str, Any] | None,
+    selected_dataset: str,
+) -> list[dict[str, Any]]:
+    alias_lookup = _build_field_alias_lookup(semantic_layer, selected_dataset)
+    valid_canonical_fields = set(alias_lookup.values())
+    sanitized: list[dict[str, Any]] = []
+
+    for item in llm_filters:
+        if not isinstance(item, dict):
+            continue
+
+        copied = dict(item)
+        field = copied.get("field")
+        if isinstance(field, str) and field.strip():
+            normalized_field = _normalize_key(field)
+            canonical = alias_lookup.get(normalized_field)
+            if canonical:
+                copied["field"] = canonical
+            elif "." in field.strip():
+                if field.strip() not in valid_canonical_fields:
+                    continue
+                copied["field"] = field.strip()
+            else:
+                continue
+
+        sanitized.append(copied)
+
+    return sanitized
+
+
 def merge_llm_selection_into_plan(
     llm_selection: dict[str, Any],
     token_hits: dict[str, Any],
@@ -310,7 +342,7 @@ def merge_llm_selection_into_plan(
     selected_filters: list[dict[str, Any]] = []
     llm_filters = llm_selection.get("selected_filters", []) or []
     if isinstance(llm_filters, list):
-        selected_filters = [f for f in llm_filters if isinstance(f, dict)]
+        selected_filters = _sanitize_llm_filters(llm_filters, semantic_layer, primary_dataset)
 
     if not selected_filters:
         selected_filters = _build_step_b_filters(extracted_features, semantic_layer, primary_dataset)

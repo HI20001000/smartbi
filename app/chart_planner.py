@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from dataclasses import dataclass
 from typing import Any
 
 from app.query_executor import QueryResult
+
+
+ROW_INDEX_X_KEY = "__row_index__"
 
 
 @dataclass(frozen=True)
@@ -15,15 +19,18 @@ class ChartSpec:
 
 
 def _is_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+    return isinstance(value, (int, float, Decimal)) and not isinstance(value, bool)
 
 
 def build_chart_spec(query_result: QueryResult, title: str = "SQL Query Result") -> ChartSpec:
     if not query_result.rows:
         return ChartSpec(chart_type="table", x=None, y=[], title=f"{title} (empty)")
 
-    sample = query_result.rows[0]
-    numeric_cols = [c for c, v in sample.items() if _is_number(v)]
+    numeric_cols = [
+        c
+        for c in query_result.columns
+        if any(_is_number(row.get(c)) for row in query_result.rows)
+    ]
     non_numeric_cols = [c for c in query_result.columns if c not in numeric_cols]
 
     if not numeric_cols:
@@ -38,4 +45,5 @@ def build_chart_spec(query_result: QueryResult, title: str = "SQL Query Result")
     if non_numeric_cols:
         return ChartSpec(chart_type="bar", x=non_numeric_cols[0], y=[numeric_cols[0]], title=title)
 
-    return ChartSpec(chart_type="table", x=None, y=numeric_cols[:3], title=title)
+    # only numeric columns are present: still render a bar chart using row index as x-axis
+    return ChartSpec(chart_type="bar", x=ROW_INDEX_X_KEY, y=[numeric_cols[0]], title=title)

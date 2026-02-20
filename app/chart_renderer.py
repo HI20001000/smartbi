@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.chart_planner import ChartSpec
+from app.chart_planner import ChartSpec, ROW_INDEX_X_KEY
 from app.query_executor import QueryResult
 
 
@@ -31,11 +31,16 @@ def render_chart(query_result: QueryResult, chart_spec: ChartSpec, output_path: 
         ax.set_ylabel(y_col)
         ax.tick_params(axis="x", rotation=35)
     elif chart_spec.chart_type == "bar" and chart_spec.x and chart_spec.y:
-        x_data = [str(row.get(chart_spec.x)) for row in query_result.rows]
         y_col = chart_spec.y[0]
         y_data = [row.get(y_col) for row in query_result.rows]
+        if chart_spec.x == ROW_INDEX_X_KEY:
+            x_data = [str(i + 1) for i, _ in enumerate(query_result.rows)]
+            x_label = "row_index"
+        else:
+            x_data = [str(row.get(chart_spec.x)) for row in query_result.rows]
+            x_label = chart_spec.x
         ax.bar(x_data, y_data)
-        ax.set_xlabel(chart_spec.x)
+        ax.set_xlabel(x_label)
         ax.set_ylabel(y_col)
         ax.tick_params(axis="x", rotation=35)
     else:
