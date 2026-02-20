@@ -68,7 +68,7 @@ def main():
             print(
                 f"\n\n{_date_tag()}AI> 已識別為 SQL 任務（Step A）。\n"
                 f"Step B 特徵提取結果：{features}\n\n")
-            
+
             token_hits = matcher.match(features)
             print(f"\n\nStep C Token 命中結果：{token_hits}\n\n")
             llm_selection = session.select_semantic_plan_with_llm(
