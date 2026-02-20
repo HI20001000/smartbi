@@ -399,6 +399,59 @@ class SemanticPipelineTests(unittest.TestCase):
             merged["selected_filters"],
             [{"field": "customer.customer_id", "op": "=", "value": "10001"}],
         )
+
+    def test_merge_and_compile_support_allowed_sensitive_entity_fields(self):
+        token_hits = {
+            "matches": [
+                {"object_type": "sensitive_field", "canonical_name": "customer.full_name", "dataset": "", "allowed": True},
+                {"object_type": "sensitive_field", "canonical_name": "customer.id_no", "dataset": "", "allowed": True},
+                {"object_type": "dimension", "canonical_name": "credit_score_monthly.score_band", "dataset": "credit_score_monthly", "allowed": True},
+            ],
+            "blocked_matches": [],
+        }
+        llm_selection = {
+            "selected_metrics": [],
+            "selected_dimensions": ["customer.full_name", "customer.id_no"],
+            "selected_filters": [{"field": "credit_score_monthly.customer_id", "op": "=", "value": "10001"}],
+            "selected_dataset_candidates": ["credit_score_monthly"],
+        }
+        features = {"filters": [], "time_start": "", "time_end": "", "query_text": "查詢客戶ID為10001的姓名與身份證號"}
+
+        semantic_layer = {
+            "entities": {
+                "customer": {
+                    "table": "core_customer",
+                    "fields": [{"name": "customer_id", "expr": "core_customer.customer_id"}],
+                    "sensitive_fields": [
+                        {"name": "full_name", "expr": "core_customer.full_name", "allowed": True, "synonyms": ["姓名"]},
+                        {"name": "id_no", "expr": "core_customer.id_no", "allowed": True, "synonyms": ["身份證號"]},
+                    ],
+                },
+                "calendar": {"table": "dim_calendar", "fields": [{"name": "yyyy_mm", "expr": "dim_calendar.yyyy_mm"}]},
+            },
+            "datasets": {
+                "credit_score_monthly": {
+                    "from": "fact_credit_score_monthly as cs",
+                    "dimensions": [{"name": "score_band", "expr": "cs.score_band"}],
+                    "metrics": [],
+                    "time_dimensions": [{"name": "yyyy_mm", "expr": "cs.yyyy_mm", "grain": "month"}],
+                    "joins": [
+                        {"entity": "customer", "on": "cs.customer_id = core_customer.customer_id"},
+                        {"entity": "calendar", "on": "cs.yyyy_mm = dim_calendar.yyyy_mm"},
+                    ],
+                }
+            },
+        }
+
+        merged = merge_llm_selection_into_plan(llm_selection, token_hits, features, semantic_layer=semantic_layer)
+        validation = validate_semantic_plan(merged, token_hits, {"require_time_filter": False}, semantic_layer=semantic_layer)
+        self.assertTrue(validation["ok"])
+
+        sql = compile_sql_from_semantic_plan(merged, semantic_layer)
+        self.assertIn("core_customer.full_name AS customer_full_name", sql)
+        self.assertIn("core_customer.id_no AS customer_id_no", sql)
+        self.assertIn("core_customer.customer_id = '10001'", sql)
+
     def test_merge_llm_selection_uses_query_text_two_month_bounds_when_detected(self):
         token_hits = {
             "matches": [

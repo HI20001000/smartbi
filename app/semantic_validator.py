@@ -3,6 +3,20 @@ from __future__ import annotations
 from typing import Any
 
 
+def _parse_allowed_flag(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    text = str(value).strip().lower()
+    if text in {"true", "1", "yes", "y", "allow", "allowed"}:
+        return True
+    if text in {"false", "0", "no", "n", "deny", "denied"}:
+        return False
+    return default
+
+
+
 def _dataset_from_canonical_name(canonical_name: str) -> str | None:
     if not isinstance(canonical_name, str) or "." not in canonical_name:
         return None
@@ -85,6 +99,10 @@ def _build_valid_canonical_sets(semantic_layer: dict[str, Any]) -> tuple[set[str
             name = str(field.get("name", "") or "").strip()
             if name:
                 dimension_set.add(f"{entity_name}.{name}")
+        for sensitive_field in entity.get("sensitive_fields", []) or []:
+            name = str(sensitive_field.get("name", "") or "").strip()
+            if name and _parse_allowed_flag(sensitive_field.get("allowed", False), default=False):
+                dimension_set.add(f"{entity_name}.{name}")
 
     return metric_set, dimension_set
 
@@ -106,6 +124,23 @@ def _has_compilable_select_item(enhanced_plan: dict[str, Any], semantic_layer: d
         for dimension in ds.get("dimensions", []) or []
         if str(dimension.get("name", "") or "").strip()
     }
+    for time_dimension in ds.get("time_dimensions", []) or []:
+        name = str(time_dimension.get("name", "") or "").strip()
+        if name:
+            dimension_names.add(f"{dataset_name}.{name}")
+
+    entities = semantic_layer.get("entities", {}) or {}
+    for join in ds.get("joins", []) or []:
+        if not isinstance(join, dict):
+            continue
+        entity_name = str(join.get("entity", "") or "").strip()
+        if not entity_name:
+            continue
+        entity = entities.get(entity_name, {}) or {}
+        for sensitive_field in entity.get("sensitive_fields", []) or []:
+            name = str(sensitive_field.get("name", "") or "").strip()
+            if name and _parse_allowed_flag(sensitive_field.get("allowed", False), default=False):
+                dimension_names.add(f"{entity_name}.{name}")
 
     selected_metrics = [x for x in enhanced_plan.get("selected_metrics", []) or [] if isinstance(x, str)]
     selected_dimensions = [x for x in enhanced_plan.get("selected_dimensions", []) or [] if isinstance(x, str)]

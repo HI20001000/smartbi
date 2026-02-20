@@ -43,7 +43,7 @@ def _dimension_candidates(matches: list[dict[str, Any]]) -> list[str]:
         [
             m.get("canonical_name", "")
             for m in matches
-            if m.get("object_type") in {"dimension", "field"}
+            if m.get("object_type") in {"dimension", "field", "sensitive_field"}
             and m.get("allowed") is not False
             and m.get("canonical_name")
         ]
