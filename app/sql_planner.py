@@ -267,6 +267,26 @@ def _resolve_time_filter_field(selected_dataset: str, semantic_layer: dict[str, 
     return "calendar.biz_date"
 
 
+def _resolve_time_dimension_grain(selected_dataset: str, semantic_layer: dict[str, Any] | None) -> str:
+    if not selected_dataset or semantic_layer is None:
+        return ""
+    dataset = (semantic_layer.get("datasets", {}) or {}).get(selected_dataset, {}) or {}
+    for time_dimension in dataset.get("time_dimensions", []) or []:
+        grain = str(time_dimension.get("grain", "") or "").strip().lower()
+        if grain:
+            return grain
+    return ""
+
+
+def _normalize_time_bound_value(value: str, grain: str) -> str:
+    text = value.strip()
+    if grain == "month":
+        month_match = re.match(r"^\d{4}-\d{2}(?:-\d{2})?$", text)
+        if month_match:
+            return text[:7]
+    return text
+
+
 def _build_time_filter_from_bounds(
     time_start: str,
     time_end: str,
@@ -280,11 +300,15 @@ def _build_time_filter_from_bounds(
     if not start or not end:
         return []
 
+    grain = _resolve_time_dimension_grain(selected_dataset, semantic_layer)
+    normalized_start = _normalize_time_bound_value(start, grain)
+    normalized_end = _normalize_time_bound_value(end, grain)
+
     return [
         {
             "field": _resolve_time_filter_field(selected_dataset, semantic_layer),
             "op": "between",
-            "value": [start, end],
+            "value": [normalized_start, normalized_end],
             "source": "step_b_time_bounds",
         }
     ]
