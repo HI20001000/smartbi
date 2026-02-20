@@ -406,6 +406,172 @@ class SemanticPipelineTests(unittest.TestCase):
             merged["selected_filters"],
         )
 
+    def test_validator_rejects_blocked_sensitive_fields(self):
+        plan = {
+            "selected_metrics": ["sales.revenue"],
+            "selected_dimensions": [],
+            "selected_filters": [{"field": "sales.biz_date", "op": "between", "value": ["2026-01-01", "2026-01-31"]}],
+            "selected_dataset_candidates": ["sales"],
+        }
+        token_hits = {"blocked_matches": [{"canonical_name": "customer.id_no"}]}
+
+        result = validate_semantic_plan(plan, token_hits, {"require_time_filter": True}, semantic_layer=SEMANTIC_LAYER)
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error_codes"], ["BLOCKED_MATCH"])
+
+    def test_validator_requires_time_filter_when_governance_enabled(self):
+        plan = {
+            "selected_metrics": ["sales.revenue"],
+            "selected_dimensions": [],
+            "selected_filters": [],
+            "selected_dataset_candidates": ["sales"],
+        }
+
+        result = validate_semantic_plan(plan, {"blocked_matches": []}, {"require_time_filter": True}, semantic_layer=SEMANTIC_LAYER)
+
+        self.assertFalse(result["ok"])
+        self.assertIn("TIME_FILTER_REQUIRED", result["error_codes"])
+
+    def test_validator_empty_selection_does_not_emit_time_filter_required(self):
+        plan = {
+            "selected_metrics": [],
+            "selected_dimensions": [],
+            "selected_filters": [],
+            "selected_dataset_candidates": [],
+        }
+
+        result = validate_semantic_plan(plan, {"blocked_matches": []}, {"require_time_filter": True}, semantic_layer=SEMANTIC_LAYER)
+
+        self.assertFalse(result["ok"])
+        self.assertIn("EMPTY_SELECTION", result["error_codes"])
+        self.assertNotIn("TIME_FILTER_REQUIRED", result["error_codes"])
+
+    def test_validator_rejects_incomplete_time_axis(self):
+        plan = {
+            "selected_metrics": ["sales.revenue"],
+            "selected_dimensions": [],
+            "selected_filters": [{"field": "sales.biz_date", "op": "between", "value": ["2026-01-01", "2026-01-31"]}],
+            "selected_dataset_candidates": ["sales"],
+            "time_axis": {"has_time_filter": True, "start_date": "2026-01-01", "end_date": ""},
+        }
+
+        result = validate_semantic_plan(plan, {"blocked_matches": []}, {"require_time_filter": True}, semantic_layer=SEMANTIC_LAYER)
+
+        self.assertFalse(result["ok"])
+        self.assertIn("TIME_AXIS_INCOMPLETE", result["error_codes"])
+
+    def test_validator_rejects_empty_selection(self):
+        plan = {
+            "selected_metrics": [],
+            "selected_dimensions": [],
+            "selected_filters": [{"field": "sales.biz_date", "op": "between", "value": ["2026-01-01", "2026-01-31"]}],
+            "selected_dataset_candidates": ["sales"],
+        }
+
+        result = validate_semantic_plan(plan, {"blocked_matches": []}, {"require_time_filter": True}, semantic_layer=SEMANTIC_LAYER)
+
+        self.assertFalse(result["ok"])
+        self.assertIn("EMPTY_SELECTION", result["error_codes"])
+
+    def test_validator_rejects_multi_dataset_without_shared_join_entity(self):
+        semantic_layer = {
+            "entities": {
+                "calendar": {"table": "dim_calendar", "fields": [{"name": "biz_date", "expr": "dim_calendar.biz_date"}]},
+                "branch": {"table": "dim_branch", "fields": [{"name": "region", "expr": "dim_branch.region"}]},
+            },
+            "datasets": {
+                "sales": {
+                    "from": "fact_sales as s",
+                    "metrics": [{"name": "revenue", "expr": "SUM(s.revenue)"}],
+                    "time_dimensions": [{"name": "biz_date", "expr": "s.biz_date"}],
+                    "joins": [{"entity": "calendar", "on": "s.biz_date = dim_calendar.biz_date"}],
+                },
+                "complaints": {
+                    "from": "fact_complaint as c",
+                    "metrics": [{"name": "case_cnt", "expr": "COUNT(*)"}],
+                    "time_dimensions": [{"name": "biz_date", "expr": "c.biz_date"}],
+                    "joins": [{"entity": "branch", "on": "c.branch_id = dim_branch.branch_id"}],
+                },
+            },
+        }
+        plan = {
+            "selected_metrics": ["sales.revenue", "complaints.case_cnt"],
+            "selected_dimensions": [],
+            "selected_filters": [{"field": "sales.biz_date", "op": "between", "value": ["2026-01-01", "2026-01-31"]}],
+            "selected_dataset_candidates": ["sales", "complaints"],
+        }
+
+        result = validate_semantic_plan(plan, {"blocked_matches": []}, {"require_time_filter": True}, semantic_layer=semantic_layer)
+
+        self.assertFalse(result["ok"])
+        self.assertIn("MULTI_DATASET_NO_JOIN_PATH", result["error_codes"])
+
+    def test_validator_rejects_dataset_mismatch_against_primary_dataset(self):
+        plan = {
+            "selected_metrics": ["sales.revenue"],
+            "selected_dimensions": ["other.region"],
+            "selected_filters": [{"field": "sales.biz_date", "op": "between", "value": ["2026-01-01", "2026-01-31"]}],
+            "selected_dataset_candidates": ["sales"],
+        }
+
+        result = validate_semantic_plan(plan, {"blocked_matches": []}, {"require_time_filter": True}, semantic_layer=SEMANTIC_LAYER)
+
+        self.assertFalse(result["ok"])
+        self.assertIn("DATASET_MISMATCH", result["error_codes"])
+
+    def test_validator_rejects_invalid_filter_shapes(self):
+        plan = {
+            "selected_metrics": ["sales.revenue"],
+            "selected_dimensions": [],
+            "selected_filters": ["sales.biz_date between 2026-01-01 and 2026-01-31"],
+            "selected_dataset_candidates": ["sales"],
+        }
+
+        result = validate_semantic_plan(plan, {"blocked_matches": []}, {"require_time_filter": False}, semantic_layer=SEMANTIC_LAYER)
+
+        self.assertFalse(result["ok"])
+        self.assertIn("INVALID_FILTER_SHAPE", result["error_codes"])
+
+    def test_validator_rejects_between_with_invalid_value_count(self):
+        plan = {
+            "selected_metrics": ["sales.revenue"],
+            "selected_dimensions": [],
+            "selected_filters": [{"field": "sales.biz_date", "op": "between", "value": ["2026-01-01"]}],
+            "selected_dataset_candidates": ["sales"],
+        }
+
+        result = validate_semantic_plan(plan, {"blocked_matches": []}, {"require_time_filter": False}, semantic_layer=SEMANTIC_LAYER)
+
+        self.assertFalse(result["ok"])
+        self.assertIn("INVALID_FILTER_BETWEEN", result["error_codes"])
+
+    def test_validator_rejects_in_without_values(self):
+        plan = {
+            "selected_metrics": ["sales.revenue"],
+            "selected_dimensions": [],
+            "selected_filters": [{"field": "branch.region", "op": "in", "value": []}],
+            "selected_dataset_candidates": ["sales"],
+        }
+
+        result = validate_semantic_plan(plan, {"blocked_matches": []}, {"require_time_filter": False}, semantic_layer=SEMANTIC_LAYER)
+
+        self.assertFalse(result["ok"])
+        self.assertIn("INVALID_FILTER_VALUE", result["error_codes"])
+
+    def test_validator_rejects_when_no_compilable_select_exists(self):
+        plan = {
+            "selected_metrics": [],
+            "selected_dimensions": ["branch.region"],
+            "selected_filters": [{"field": "sales.biz_date", "op": "between", "value": ["2026-01-01", "2026-01-31"]}],
+            "selected_dataset_candidates": ["sales"],
+        }
+
+        result = validate_semantic_plan(plan, {"blocked_matches": []}, {"require_time_filter": False}, semantic_layer=SEMANTIC_LAYER)
+
+        self.assertFalse(result["ok"])
+        self.assertIn("NO_COMPILABLE_SELECT", result["error_codes"])
+
 
 if __name__ == "__main__":
     unittest.main()

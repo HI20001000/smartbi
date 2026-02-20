@@ -251,20 +251,35 @@ class SemanticTokenMatcher:
                 if isinstance(v, str) and v.strip():
                     values.append(self._normalize(v))
 
+        query_text = extracted_features.get("query_text", "")
+        normalized_query_text = self._normalize(query_text) if isinstance(query_text, str) else ""
+        if normalized_query_text:
+            values.append(normalized_query_text)
+
         seen: set[str] = set()
         matches: list[dict[str, Any]] = []
         blocked: list[dict[str, Any]] = []
+
+        def _append_entry(entry: SemanticEntry) -> None:
+            if entry.canonical_name in seen:
+                return
+            seen.add(entry.canonical_name)
+            payload = self._to_match_payload(entry, source="exact")
+            if entry.allowed:
+                matches.append(payload)
+            else:
+                blocked.append(payload)
+
         for value in values:
             for entry in self.entries:
                 if value in entry.aliases:
-                    if entry.canonical_name in seen:
-                        continue
-                    seen.add(entry.canonical_name)
-                    payload = self._to_match_payload(entry, source="exact")
-                    if entry.allowed:
-                        matches.append(payload)
-                    else:
-                        blocked.append(payload)
+                    _append_entry(entry)
+
+        if normalized_query_text:
+            for entry in self.entries:
+                if any(alias and alias in normalized_query_text for alias in entry.aliases):
+                    _append_entry(entry)
+
         return matches, blocked
 
     def _semantic_retrieve(self, query: str, top_k: int = 8) -> list[dict[str, Any]]:
@@ -465,6 +480,9 @@ class SemanticTokenMatcher:
         for key in ("metrics", "dimensions", "tokens", "filters"):
             values = extracted_features.get(key, []) or []
             query_parts.extend([v for v in values if isinstance(v, str) and v.strip()])
+        query_text = extracted_features.get("query_text", "")
+        if isinstance(query_text, str) and query_text.strip():
+            query_parts.append(query_text.strip())
         semantic_query = " ".join(query_parts).strip()
 
         embedding_hits = self._semantic_retrieve(semantic_query, top_k=8)

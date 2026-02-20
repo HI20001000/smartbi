@@ -234,6 +234,7 @@ class LLMChatSession:
             "filters": _string_list(parsed.get("filters")),
             "time_start": _date_or_empty(parsed.get("time_start")),
             "time_end": _date_or_empty(parsed.get("time_end")),
+            "query_text": user_input.strip(),
         }
 
     def summarize_query_result_with_llm(self, user_input: str, rows: list[dict], max_rows: int = 20) -> str:
