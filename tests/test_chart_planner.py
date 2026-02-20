@@ -51,6 +51,36 @@ class ChartPlannerTests(unittest.TestCase):
         self.assertEqual(spec.x, ROW_INDEX_X_KEY)
         self.assertEqual(spec.y, ["deposit_balance_daily_deposit_end_balance"])
 
+    def test_build_chart_spec_respects_requested_pie_chart(self):
+        result = QueryResult(
+            columns=["region", "total_amount"],
+            rows=[
+                {"region": "澳門半島", "total_amount": Decimal("10.5")},
+                {"region": "氹仔", "total_amount": Decimal("20.0")},
+            ],
+        )
+
+        spec = build_chart_spec(result, title="t", preferred_chart_type="pie")
+
+        self.assertEqual(spec.chart_type, "pie")
+        self.assertEqual(spec.x, "region")
+        self.assertEqual(spec.y, ["total_amount"])
+
+    def test_build_chart_spec_respects_requested_scatter_chart(self):
+        result = QueryResult(
+            columns=["x_metric", "y_metric", "label"],
+            rows=[
+                {"x_metric": Decimal("1.0"), "y_metric": Decimal("2.0"), "label": "A"},
+                {"x_metric": Decimal("2.0"), "y_metric": Decimal("4.0"), "label": "B"},
+            ],
+        )
+
+        spec = build_chart_spec(result, title="t", preferred_chart_type="scatter")
+
+        self.assertEqual(spec.chart_type, "scatter")
+        self.assertEqual(spec.x, "x_metric")
+        self.assertEqual(spec.y, ["y_metric"])
+
 
 if __name__ == "__main__":
     unittest.main()

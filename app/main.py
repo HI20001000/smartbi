@@ -1,5 +1,6 @@
 import argparse
 from datetime import datetime
+from decimal import Decimal
 import json
 from pathlib import Path
 import time
@@ -25,12 +26,36 @@ def _date_tag() -> str:
 
 
 def _pretty(data: object) -> str:
-    return json.dumps(data, ensure_ascii=False, indent=2)
+    def _json_fallback(value: object) -> object:
+        if isinstance(value, Decimal):
+            return float(value)
+        return str(value)
+
+    return json.dumps(data, ensure_ascii=False, indent=2, default=_json_fallback)
 
 
 def _dark_log_block(text: str) -> str:
     # ANSI dark style block (fallback to plain text if terminal does not support ANSI)
     return f"\033[48;5;236m\033[97m{text}\033[0m"
+
+
+def _detect_preferred_chart_type(features: dict) -> str | None:
+    keywords = [
+        *(features.get("tokens", []) or []),
+        *(features.get("dimensions", []) or []),
+        *(features.get("filters", []) or []),
+    ]
+    text = " ".join(str(k) for k in keywords)
+    mapping = [
+        (("圓餅圖", "餅圖", "餅形圖", "pie"), "pie"),
+        (("散佈圖", "散点图", "scatter"), "scatter"),
+        (("折線圖", "線圖", "line"), "line"),
+        (("直條圖", "柱狀圖", "長條圖", "bar"), "bar"),
+    ]
+    for terms, chart_type in mapping:
+        if any(term in text for term in terms):
+            return chart_type
+    return None
 
 
 def _find_time_between_filter(enhanced_plan: dict) -> tuple[str, str] | None:
@@ -400,7 +425,12 @@ def main():
                                             adjusted_end,
                                         )
 
-                    chart_spec = build_chart_spec(result, title="SmartBI SQL Result")
+                    preferred_chart_type = _detect_preferred_chart_type(features)
+                    chart_spec = build_chart_spec(
+                        result,
+                        title="SmartBI SQL Result",
+                        preferred_chart_type=preferred_chart_type,
+                    )
                     chart_path = render_chart(
                         result,
                         chart_spec,
