@@ -153,7 +153,7 @@ class SemanticPipelineTests(unittest.TestCase):
             "selected_dataset_candidates": ["sales"],
         }
 
-        sql = compile_sql_from_semantic_plan(plan, SEMANTIC_LAYER, limit=100)
+        sql = compile_sql_from_semantic_plan(plan, SEMANTIC_LAYER)
 
         self.assertIn("SELECT s.biz_date AS sales_biz_date, SUM(s.revenue) AS sales_revenue", sql)
         self.assertIn("FROM fact_sales as s", sql)
@@ -161,7 +161,6 @@ class SemanticPipelineTests(unittest.TestCase):
         self.assertIn("dim_branch.region = '澳門半島'", sql)
         self.assertIn("s.biz_date BETWEEN '2024-01-01' AND '2024-01-31'", sql)
         self.assertIn("GROUP BY s.biz_date", sql)
-        self.assertTrue(sql.strip().endswith("LIMIT 100"))
 
 
 if __name__ == "__main__":

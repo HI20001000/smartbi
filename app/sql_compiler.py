@@ -76,7 +76,6 @@ def _build_semantic_lookup(dataset_name: str, semantic_layer: dict[str, Any]) ->
 def compile_sql_from_semantic_plan(
     enhanced_plan: dict[str, Any],
     semantic_layer: dict[str, Any],
-    limit: int = 200,
 ) -> str:
     datasets = enhanced_plan.get("selected_dataset_candidates", []) or []
     if not datasets:
@@ -138,5 +137,4 @@ def compile_sql_from_semantic_plan(
     if group_by_parts:
         sql_lines.append(f"GROUP BY {', '.join(group_by_parts)}")
 
-    sql_lines.append(f"LIMIT {int(limit)}")
     return "\n".join(sql_lines)
