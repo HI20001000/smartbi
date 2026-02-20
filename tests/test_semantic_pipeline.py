@@ -205,6 +205,114 @@ class SemanticPipelineTests(unittest.TestCase):
         )
         self.assertFalse(any(isinstance(f, dict) and "expr" in f for f in merged["selected_filters"]))
 
+    def test_merge_llm_selection_drops_foreign_dataset_dimensions_when_primary_dataset_chosen(self):
+        token_hits = {
+            "matches": [
+                {"object_type": "metric", "canonical_name": "loans_daily_balance.overdue_amount", "dataset": "loans_daily_balance", "allowed": True},
+                {"object_type": "field", "canonical_name": "branch.branch_name", "dataset": "", "allowed": True},
+                {"object_type": "field", "canonical_name": "calendar.year", "dataset": "", "allowed": True},
+                {"object_type": "field", "canonical_name": "calendar.month", "dataset": "", "allowed": True},
+                {"object_type": "dimension", "canonical_name": "credit_score_monthly.score_band", "dataset": "credit_score_monthly", "allowed": True},
+            ]
+        }
+        llm_selection = {
+            "selected_metrics": [],
+            "selected_dimensions": [],
+            "selected_dataset_candidates": [],
+            "selected_filters": [],
+        }
+        features = {
+            "filters": ["DPD30"],
+            "time_start": "2026-01-31",
+            "time_end": "2026-01-31",
+            "query_text": "查詢 2026年1月31日 各分行 DPD30 逾期金額",
+        }
+
+        semantic_layer = {
+            "entities": {
+                "branch": {"table": "dim_branch", "fields": [{"name": "branch_name", "expr": "dim_branch.branch_name"}]},
+                "calendar": {
+                    "table": "dim_calendar",
+                    "fields": [
+                        {"name": "year", "expr": "dim_calendar.year"},
+                        {"name": "month", "expr": "dim_calendar.month"},
+                    ],
+                },
+            },
+            "datasets": {
+                "loans_daily_balance": {
+                    "from": "fact_loan_balance_daily as lbal",
+                    "metrics": [{"name": "overdue_amount", "expr": "lbal.overdue_amt"}],
+                    "time_dimensions": [{"name": "biz_date", "expr": "lbal.biz_date", "grain": "day"}],
+                    "joins": [
+                        {"entity": "branch", "on": "lbal.branch_id = dim_branch.branch_id"},
+                        {"entity": "calendar", "on": "lbal.biz_date = dim_calendar.biz_date"},
+                    ],
+                },
+                "credit_score_monthly": {
+                    "from": "fact_credit_score_monthly as cs",
+                    "metrics": [{"name": "avg_credit_score", "expr": "cs.score", "type": "avg"}],
+                    "dimensions": [{"name": "score_band", "expr": "cs.score_band"}],
+                    "time_dimensions": [{"name": "yyyy_mm", "expr": "cs.yyyy_mm", "grain": "month"}],
+                    "joins": [],
+                },
+            },
+        }
+
+        merged = merge_llm_selection_into_plan(llm_selection, token_hits, features, semantic_layer=semantic_layer)
+
+        self.assertEqual(merged["selected_dataset_candidates"], ["loans_daily_balance", "credit_score_monthly"])
+        self.assertEqual(
+            merged["selected_dimensions"],
+            ["branch.branch_name", "calendar.year", "calendar.month"],
+        )
+        self.assertNotIn("credit_score_monthly.score_band", merged["selected_dimensions"])
+
+    def test_merge_llm_selection_maps_dpd_shortcut_to_overdue_days_filter(self):
+        token_hits = {
+            "matches": [
+                {"object_type": "metric", "canonical_name": "loans_daily_balance.overdue_amount", "dataset": "loans_daily_balance", "allowed": True},
+                {"object_type": "field", "canonical_name": "branch.branch_name", "dataset": "", "allowed": True},
+            ]
+        }
+        llm_selection = {
+            "selected_metrics": [],
+            "selected_dimensions": [],
+            "selected_dataset_candidates": [],
+            "selected_filters": [],
+        }
+        features = {
+            "filters": ["DPD30"],
+            "time_start": "2026-01-31",
+            "time_end": "2026-01-31",
+            "query_text": "查詢 2026年1月31日 各分行 DPD30 逾期金額",
+        }
+
+        semantic_layer = {
+            "entities": {
+                "branch": {"table": "dim_branch", "fields": [{"name": "branch_name", "expr": "dim_branch.branch_name"}]},
+            },
+            "datasets": {
+                "loans_daily_balance": {
+                    "from": "fact_loan_balance_daily as lbal",
+                    "metrics": [{"name": "overdue_amount", "expr": "lbal.overdue_amt", "type": "sum"}],
+                    "dimensions": [{"name": "overdue_days", "expr": "lbal.overdue_days", "synonyms": ["逾期天數"]}],
+                    "time_dimensions": [{"name": "biz_date", "expr": "lbal.biz_date", "grain": "day"}],
+                    "joins": [{"entity": "branch", "on": "lbal.branch_id = dim_branch.branch_id"}],
+                },
+            },
+        }
+
+        merged = merge_llm_selection_into_plan(llm_selection, token_hits, features, semantic_layer=semantic_layer)
+
+        self.assertIn(
+            {"field": "loans_daily_balance.overdue_days", "op": ">=", "value": 30, "source": "step_b_filters"},
+            merged["selected_filters"],
+        )
+        sql = compile_sql_from_semantic_plan(merged, semantic_layer)
+        self.assertIn("lbal.overdue_days >= 30", sql)
+        self.assertNotIn("WHERE DPD30", sql)
+
     def test_merge_llm_selection_uses_query_text_two_month_bounds_when_detected(self):
         token_hits = {
             "matches": [
